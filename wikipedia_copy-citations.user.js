@@ -5,8 +5,8 @@
 // @description  Adds a floating copy button to include references when copying text from Wikipedia
 // @match        *://*.wikipedia.org/*
 // @grant        none
-// @downloadURL https://raw.githubusercontent.com/jasonm23/userscripts/main/wikipedia_copy-citations.user.js
-// @updateURL   https://raw.githubusercontent.com/jasonm23/userscripts/main/wikipedia
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/wikipedia_copy-citations.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/wikipedia_copy-citations.user.js
 // ==/UserScript==
 
 (function () {

@@ -4,6 +4,8 @@
 // @version      3.0
 // @description  Insert or remove 4-space indents in MerusCase notes with Tab, Shift+Tab, and Backspace. Toggle behavior and nbsp support.
 // @match        *://*.meruscase.com/*
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_tab-send4spaces.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_tab-send4spaces.user.js
 // @grant        none
 // ==/UserScript==
 

@@ -4,6 +4,8 @@
 // @version      1.2
 // @description  Adds a "Copy & Format" button next to PDRater rating field to copy formatted result
 // @match        *://*.pdrater.com/*
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/pdrater_copy-rating.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/pdrater_copy-rating.user.js
 // @grant        none
 // ==/UserScript==
 

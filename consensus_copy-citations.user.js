@@ -4,6 +4,8 @@
 // @version      1.2
 // @description  Appends sorted, deduplicated citation links when copying from consensus.app
 // @match        *://consensus.app/*
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/consensus_copy-citations.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/consensus_copy-citations.user.js
 // @grant        none
 // ==/UserScript==
 
