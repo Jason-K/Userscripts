@@ -78,8 +78,8 @@ jobs:
 |--------|-------------|
 | `consensus-copy-citations.user.js` | Adds sorted citation links when copying from Consensus.app |
 | `wikipedia-copy-citations.user.js` | Appends Wikipedia references when copying selected text |
-| `merus_tab-send4spaces.user.js`    | Send 4 spaces instead of tab when editing a "Description" in Meruscase
-
+| `merus_tab-send4spaces.user.js`    | Send 4 spaces instead of tab when editing a "Description" in Merus |
+| `pdrater_copy-rating.user.js`      | Reformat rating strings |
 
 ---
 
