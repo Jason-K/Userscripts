@@ -11,7 +11,7 @@
   const repo = "Jason-K/Userscripts";
   const branch = "main";
   const base = `https://github.com/Jason-K/Userscripts/raw/refs/heads/main/`;
-  const indexURL = `${base}/scripts-index.js`;
+  const indexURL = `https://github.com/Jason-K/Userscripts/raw/refs/heads/main/scripts-index.js`;
 
   try {
     await import(indexURL);
