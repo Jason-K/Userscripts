@@ -1,5 +1,3 @@
-// scripts-index.json
-// This file contains a list of userscripts with their metadata.
 [ 
     "consensus_copy-citations.user.js",
     "wikipedia_copy-citations.user.js",
