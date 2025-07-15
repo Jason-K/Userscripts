@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Userscript Bootstrap Loader
 // @namespace    https://github.com/Jason-K
-// @version      1.1
-// @description  Dynamically loads and opens all user scripts listed in scripts-index.js
-// @match        *://*/*
+// @version      1.2
+// @description  Dynamically loads and opens all user scripts listed in scripts-index.json
+// @match        https://loadmyuserscripts.com/*
 // @grant        none
 // ==/UserScript==
 
@@ -11,27 +11,25 @@
   const repo = "Jason-K/Userscripts";
   const branch = "main";
   const base = `https://raw.githubusercontent.com/${repo}/${branch}`;
-  const indexURL = `${base}/scripts-index.js`;
+  const indexURL = `${base}/scripts-index.json`;
 
   try {
-    const indexText = await fetch(indexURL).then(r => {
+    const scripts = await fetch(indexURL).then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.text();
+      return r.json();
     });
 
-    eval(indexText); // Defines window.USERSCRIPTS
-
-    if (!Array.isArray(window.USERSCRIPTS)) {
-      alert("USERSCRIPTS index is invalid.");
+    if (!Array.isArray(scripts)) {
+      alert("scripts-index.json is invalid.");
       return;
     }
 
     const confirmed = confirm(
-      `Install ${window.USERSCRIPTS.length} userscripts?\n\nThis will open each script in a new tab.`
+      `Install ${scripts.length} userscripts?\n\nThis will open each script in a new tab.`
     );
     if (!confirmed) return;
 
-    for (const file of window.USERSCRIPTS) {
+    for (const file of scripts) {
       const url = `${base}/${file}`;
       window.open(url, "_blank");
     }
