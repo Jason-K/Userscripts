@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Userscript Bootstrap Loader
 // @namespace    https://github.com/Jason-K
-// @version      1.0
+// @version      1.1
 // @description  Dynamically loads and opens all user scripts listed in scripts-index.js
 // @match        *://*/*
 // @grant        none
@@ -10,11 +10,16 @@
 (async function () {
   const repo = "Jason-K/Userscripts";
   const branch = "main";
-  const base = `https://github.com/Jason-K/Userscripts/raw/refs/heads/main/`;
-  const indexURL = `https://github.com/Jason-K/Userscripts/raw/refs/heads/main/scripts-index.js`;
+  const base = `https://raw.githubusercontent.com/${repo}/${branch}`;
+  const indexURL = `${base}/scripts-index.js`;
 
   try {
-    await import(indexURL);
+    const indexText = await fetch(indexURL).then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    });
+
+    eval(indexText); // Defines window.USERSCRIPTS
 
     if (!Array.isArray(window.USERSCRIPTS)) {
       alert("USERSCRIPTS index is invalid.");
