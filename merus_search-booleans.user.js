@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
 // @namespace    http://tampermonkey.net/
-// @version      2.4.2
+// @version      2.4.3
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @author       You
 // @match        https://*.meruscase.com/*
@@ -209,6 +209,11 @@
             return;
         }
 
+        console.log(`Starting filter with ${allRows.length} rows`);
+        console.log('Include terms:', include);
+        console.log('Exclude terms:', exclude);
+        console.log('OR groups:', orGroups);
+
         originalRowCount = allRows.length;
         filteredRowCount = 0;
 
@@ -220,35 +225,43 @@
                 row.style.visibility = 'hidden';
                 row.style.height = '0px';
                 row.style.opacity = '0';
+                row.style.display = 'none';
+                row.style.position = 'absolute';
+                row.style.top = '-9999px';
+                row.classList.add('merus-hidden');
+                console.log(`Row ${index}: NO DESCRIPTION CELL - HIDDEN`);
                 return;
             }
             
             let shouldShow = true;
             
+            // Step 1: Check include terms (ALL must match)
             if (include.length > 0) {
                 shouldShow = include.every(term => {
                     const matches = text.includes(term);
-                    console.log(`Row ${index}: Include check "${term}" in "${text}": ${matches}`);
+                    console.log(`Row ${index}: Include check "${term}" in "${text.substring(0, 50)}...": ${matches}`);
                     return matches;
                 });
                 console.log(`Row ${index}: Include result: ${shouldShow}`);
             }
 
+            // Step 2: Check exclude terms (NONE should match) - only if still showing
             if (shouldShow && exclude.length > 0) {
                 const hasExcluded = exclude.some(term => {
                     const matches = text.includes(term);
-                    console.log(`Row ${index}: Exclude check "${term}" in "${text}": ${matches}`);
+                    console.log(`Row ${index}: Exclude check "${term}" in "${text.substring(0, 50)}...": ${matches}`);
                     return matches;
                 });
-                shouldShow = !hasExcluded;
-                console.log(`Row ${index}: After exclude check: ${shouldShow}`);
+                shouldShow = !hasExcluded; // Show if NO excluded terms are found
+                console.log(`Row ${index}: Exclude check result - hasExcluded: ${hasExcluded}, shouldShow: ${shouldShow}`);
             }
 
+            // Step 3: Check OR groups (at least ONE group must have a match) - only if still showing
             if (shouldShow && orGroups.length > 0) {
                 shouldShow = orGroups.some(group => {
                     const groupMatch = group.some(term => {
                         const matches = text.includes(term);
-                        console.log(`Row ${index}: OR group term "${term}" in "${text}": ${matches}`);
+                        console.log(`Row ${index}: OR group term "${term}" in "${text.substring(0, 50)}...": ${matches}`);
                         return matches;
                     });
                     console.log(`Row ${index}: OR group ${group.join(' OR ')} result: ${groupMatch}`);
