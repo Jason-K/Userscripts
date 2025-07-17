@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Fixed)
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @description  Fixed boolean search for MerusCase Activity View - searches description only
 // @author       You
 // @match        https://*.meruscase.com/*
@@ -312,13 +312,25 @@
         }
     }
 
-    // Initialize the enhanced search UI with fixed positioning
+    // Initialize the enhanced search UI with better cleanup and resilience
     function initializeUI() {
         const searchInput = document.querySelector(SELECTORS.searchInput);
         
         if (!searchInput) {
             console.log('Search input not found');
             return false;
+        }
+
+        // Clean up any existing elements first
+        const existingToggle = document.getElementById('chatgpt-boolean-toggle');
+        const existingBadge = document.getElementById('chatgpt-boolean-badge');
+        if (existingToggle) {
+            existingToggle.remove();
+            toggleButton = null;
+        }
+        if (existingBadge) {
+            existingBadge.remove();
+            filterBadge = null;
         }
 
         // Create toggle button with better positioning
@@ -337,10 +349,13 @@
                 cursor: pointer;
                 white-space: nowrap;
                 display: inline-block;
+                position: relative;
+                z-index: 1000;
             `;
             
             toggleButton.addEventListener('click', (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 enhancedEnabled = !enhancedEnabled;
                 localStorage.setItem('merus_enhanced_enabled', enhancedEnabled);
                 console.log('Enhanced mode toggled:', enhancedEnabled);
@@ -352,10 +367,20 @@
                 }
             });
 
-            // Insert toggle button in a more stable location
+            // Find a stable insertion point
             const inputGroup = searchInput.closest('.input-group');
+            const formGroup = searchInput.closest('.form-group');
+            
             if (inputGroup && inputGroup.parentNode) {
                 inputGroup.parentNode.insertBefore(toggleButton, inputGroup.nextSibling);
+            } else if (formGroup && formGroup.parentNode) {
+                formGroup.parentNode.insertBefore(toggleButton, formGroup.nextSibling);
+            } else {
+                // Fallback: append to controls container
+                const controlsContainer = document.querySelector(SELECTORS.controlsContainer);
+                if (controlsContainer) {
+                    controlsContainer.appendChild(toggleButton);
+                }
             }
         }
 
@@ -374,8 +399,10 @@
                 width: auto;
                 max-width: 500px;
                 position: relative;
-                z-index: 10;
+                z-index: 999;
                 word-wrap: break-word;
+                box-sizing: border-box;
+                min-width: 200px;
             `;
             
             // Insert badge after toggle button for better stability
@@ -391,7 +418,7 @@
         }
 
         const savedQuery = localStorage.getItem(CONFIG.storageKey);
-        if (savedQuery) {
+        if (savedQuery && searchInput.value !== savedQuery) {
             searchInput.value = savedQuery;
         }
 
@@ -495,7 +522,7 @@
             return false;
         }
 
-        console.log('Initializing MerusCase Enhanced Boolean Search v2.1...');
+        console.log('Initializing MerusCase Enhanced Boolean Search v2.2...');
         
         addStyles();
         
@@ -519,53 +546,117 @@
         return true;
     }
 
-    // Wait for the page to load and initialize
-    function waitForPageLoad() {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                setTimeout(initialize, 500);
-            });
-        } else {
-            // Try to initialize immediately
-            if (!initialize()) {
-                // If failed, use MutationObserver to wait for elements
-                const observer = new MutationObserver((mutations, obs) => {
-                    if (initialize()) {
-                        obs.disconnect();
-                    }
-                });
-
-                observer.observe(document.body, {
-                    childList: true,
-                    subtree: true
-                });
-
-                // Stop trying after 10 seconds
-                setTimeout(() => {
-                    observer.disconnect();
-                    console.log('MerusCase Enhanced Boolean Search: Timeout waiting for page elements');
-                }, 10000);
+    // Persistent initialization - keeps trying without timeout
+    function setupPersistentInitialization() {
+        let initializationAttempts = 0;
+        const maxConsecutiveFailures = 50; // Stop logging after 50 consecutive failures
+        
+        const tryInitialize = () => {
+            if (initialize()) {
+                console.log('MerusCase Enhanced Boolean Search: Successfully initialized after', initializationAttempts, 'attempts');
+                initializationAttempts = 0; // Reset counter on success
+                return true;
+            } else {
+                initializationAttempts++;
+                if (initializationAttempts <= maxConsecutiveFailures) {
+                    console.log('MerusCase Enhanced Boolean Search: Initialization attempt', initializationAttempts, 'failed, retrying...');
+                }
+                return false;
             }
+        };
+        
+        // Try immediate initialization
+        if (tryInitialize()) {
+            return;
         }
+        
+        // Set up persistent MutationObserver (no timeout)
+        const persistentObserver = new MutationObserver((mutations) => {
+            // Check for relevant mutations (added nodes that might contain our target elements)
+            const relevantMutation = mutations.some(mutation => 
+                mutation.type === 'childList' && 
+                mutation.addedNodes.length > 0 &&
+                Array.from(mutation.addedNodes).some(node => 
+                    node.nodeType === Node.ELEMENT_NODE && 
+                    (node.querySelector && node.querySelector(SELECTORS.searchInput) || 
+                     node.matches && node.matches(SELECTORS.searchInput))
+                )
+            );
+            
+            if (relevantMutation || initializationAttempts === 0) {
+                tryInitialize();
+            }
+        });
+
+        persistentObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        // Also try periodically for the first minute
+        const periodicCheck = setInterval(() => {
+            if (tryInitialize()) {
+                clearInterval(periodicCheck);
+            }
+        }, 2000);
+        
+        // Stop periodic checking after 1 minute, but keep MutationObserver
+        setTimeout(() => {
+            clearInterval(periodicCheck);
+            console.log('MerusCase Enhanced Boolean Search: Stopped periodic checking, but MutationObserver remains active');
+        }, 60000);
     }
 
-    // Handle page navigation in SPAs
+    // Handle page navigation and content changes
     let currentUrl = location.href;
-    const observer = new MutationObserver(() => {
+    const navigationObserver = new MutationObserver(() => {
+        // Check for URL changes (SPA navigation)
         if (location.href !== currentUrl) {
             currentUrl = location.href;
-            console.log('Page navigation detected, reinitializing...');
+            console.log('MerusCase Enhanced Boolean Search: Page navigation detected to', currentUrl);
+            
+            // Clear existing UI elements to avoid duplicates
+            const existingToggle = document.getElementById('chatgpt-boolean-toggle');
+            const existingBadge = document.getElementById('chatgpt-boolean-badge');
+            if (existingToggle) existingToggle.remove();
+            if (existingBadge) existingBadge.remove();
+            
+            // Reset references
+            toggleButton = null;
+            filterBadge = null;
+            
+            // Try to reinitialize after a short delay
             setTimeout(() => {
-                if (!initialize()) {
-                    console.log('Failed to reinitialize after navigation');
-                }
+                initialize();
             }, 1000);
+        }
+        
+        // Also check if our UI elements got removed (page refresh/reload)
+        const toggleExists = document.getElementById('chatgpt-boolean-toggle');
+        const searchInputExists = document.querySelector(SELECTORS.searchInput);
+        
+        if (searchInputExists && !toggleExists) {
+            console.log('MerusCase Enhanced Boolean Search: UI elements missing but search input present, reinitializing...');
+            toggleButton = null;
+            filterBadge = null;
+            initialize();
         }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    navigationObserver.observe(document.body, { 
+        childList: true, 
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'id'] 
+    });
 
-    // Start the initialization process
-    waitForPageLoad();
+    // Start the persistent initialization process
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(setupPersistentInitialization, 500);
+        });
+    } else {
+        setupPersistentInitialization();
+    }
 
 })();
