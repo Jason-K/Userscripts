@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
 // @namespace    http://tampermonkey.net/
-// @version      2.4.1
+// @version      2.4.2
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @author       You
 // @match        https://*.meruscase.com/*
@@ -52,7 +52,7 @@
     // Store reference to current search input for persistence checking
     let currentSearchInput = null;
 
-    // Fixed query parsing with proper boolean logic
+    // Enhanced query parsing with proper boolean logic
     function parseQuery(input) {
         if (!input || !input.trim()) {
             return { include: [], exclude: [], orGroups: [], rawQuery: '' };
@@ -62,8 +62,10 @@
         console.log('Parsing query:', rawQuery);
         
         let normalized = CONFIG.caseInsensitive ? rawQuery.toLowerCase() : rawQuery;
+        
+        // Split on spaces but preserve quoted strings and handle operators properly
         const tokens = normalized.match(/(?:"[^"]*"|[^\s"]+)/g) || [];
-        console.log('Tokens:', tokens);
+        console.log('Initial tokens:', tokens);
         
         const include = [];
         const exclude = [];
@@ -71,58 +73,89 @@
         
         let i = 0;
         while (i < tokens.length) {
-            let token = tokens[i].replace(/"/g, '');
+            let token = tokens[i].replace(/"/g, ''); // Remove quotes
             
+            // Skip empty tokens
+            if (!token) {
+                i++;
+                continue;
+            }
+            
+            // Handle NOT operator (must be followed by a term)
             if (token.toLowerCase() === 'not' && i + 1 < tokens.length) {
                 const nextToken = tokens[i + 1].replace(/"/g, '');
-                exclude.push(nextToken);
-                console.log('Added to exclude via NOT:', nextToken);
+                if (nextToken) {
+                    exclude.push(nextToken);
+                    console.log('Added to exclude via NOT:', nextToken);
+                }
                 i += 2;
                 continue;
             }
             
+            // Handle exclusion with minus prefix - this is the key fix
             if (token.startsWith('-') && token.length > 1) {
                 const excludeTerm = token.substring(1);
-                exclude.push(excludeTerm);
-                console.log('Added to exclude via -:', excludeTerm);
+                if (excludeTerm) { // Make sure it's not just a dash
+                    exclude.push(excludeTerm);
+                    console.log('Added to exclude via -:', excludeTerm);
+                }
                 i++;
                 continue;
             }
             
+            // Handle inclusion with plus prefix (optional, just means include)
             if (token.startsWith('+') && token.length > 1) {
-                include.push(token.substring(1));
+                const includeTerm = token.substring(1);
+                if (includeTerm) {
+                    include.push(includeTerm);
+                    console.log('Added to include via +:', includeTerm);
+                }
                 i++;
                 continue;
             }
             
+            // Handle OR groups - look ahead for OR
             if (i + 2 < tokens.length && tokens[i + 1].toLowerCase() === 'or') {
                 const orGroup = [token];
-                i += 2;
-                orGroup.push(tokens[i].replace(/"/g, ''));
-                
-                while (i + 2 < tokens.length && tokens[i + 1].toLowerCase() === 'or') {
-                    i += 2;
-                    orGroup.push(tokens[i].replace(/"/g, ''));
+                i += 2; // Skip 'or'
+                const nextToken = tokens[i].replace(/"/g, '');
+                if (nextToken) {
+                    orGroup.push(nextToken);
                 }
                 
-                orGroups.push(orGroup);
-                console.log('Added OR group:', orGroup);
+                // Continue collecting OR terms
+                while (i + 2 < tokens.length && tokens[i + 1].toLowerCase() === 'or') {
+                    i += 2;
+                    const orToken = tokens[i].replace(/"/g, '');
+                    if (orToken) {
+                        orGroup.push(orToken);
+                    }
+                }
+                
+                if (orGroup.length > 1) {
+                    orGroups.push(orGroup);
+                    console.log('Added OR group:', orGroup);
+                }
                 i++;
                 continue;
             }
             
+            // Skip standalone 'or' tokens (should be handled above)
             if (token.toLowerCase() === 'or') {
                 i++;
                 continue;
             }
             
-            include.push(token);
-            console.log('Added to include:', token);
+            // Regular include term (default behavior)
+            if (token && token !== '-' && token !== '+') {
+                include.push(token);
+                console.log('Added to include:', token);
+            }
             i++;
         }
 
         const result = { include, exclude, orGroups, rawQuery };
-        console.log('Parsed query result:', result);
+        console.log('Final parsed query result:', result);
         return result;
     }
 
