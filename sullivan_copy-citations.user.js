@@ -3,6 +3,8 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  Appends citation links when copying from app.sullivanoncomp.com
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_copy-citations.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_copy-citations.user.js
 // @match        https://app.sullivanoncomp.com/*
 // @grant        none
 // ==/UserScript==
