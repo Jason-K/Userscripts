@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.4.1
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @author       You
 // @match        https://*.meruscase.com/*
@@ -224,11 +224,16 @@
                 console.log(`Row ${index}: Final OR result: ${shouldShow}`);
             }
 
-            // Apply visibility using infinite scroll compatible methods
+            // Apply visibility using multiple hiding methods for infinite scroll tables
             if (shouldShow) {
+                // Reset all hiding methods
                 row.style.visibility = '';
                 row.style.height = '';
                 row.style.opacity = '';
+                row.style.display = '';
+                row.style.position = '';
+                row.style.top = '';
+                row.classList.remove('merus-hidden');
                 filteredRowCount++;
                 
                 const allTerms = [...include, ...orGroups.flat()].filter(term => term && term.length > 0);
@@ -238,9 +243,14 @@
                 
                 console.log(`Row ${index}: SHOWN - "${originalText}"`);
             } else {
+                // Use multiple hiding methods to ensure row is hidden
                 row.style.visibility = 'hidden';
                 row.style.height = '0px';
                 row.style.opacity = '0';
+                row.style.display = 'none';
+                row.style.position = 'absolute';
+                row.style.top = '-9999px';
+                row.classList.add('merus-hidden');
                 
                 if (cell) {
                     cell.innerHTML = originalText;
@@ -445,9 +455,14 @@
         console.log('Clearing all filters');
         const allRows = document.querySelectorAll(SELECTORS.tableRow);
         allRows.forEach(row => {
+            // Reset all hiding methods
             row.style.visibility = '';
             row.style.height = '';
             row.style.opacity = '';
+            row.style.display = '';
+            row.style.position = '';
+            row.style.top = '';
+            row.classList.remove('merus-hidden');
             
             const descCell = row.querySelector(SELECTORS.descriptionCell);
             if (descCell) {
@@ -524,6 +539,18 @@
             #chatgpt-boolean-badge {
                 box-sizing: border-box;
                 min-width: 200px;
+            }
+            
+            /* Force hide filtered rows */
+            .merus-hidden {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                height: 0px !important;
+                overflow: hidden !important;
+                position: absolute !important;
+                top: -9999px !important;
+                left: -9999px !important;
             }
         `;
         document.head.appendChild(styles);
