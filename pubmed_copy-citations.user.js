@@ -85,19 +85,7 @@
     document.execCommand("copy");
   }
 
-  async function shortenURL(url) {
-    try {
-      const response = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`);
-      if (response.ok) {
-        return await response.text();
-      }
-    } catch (error) {
-      console.error("Error shortening URL:", error);
-    }
-    return url; // Fallback to original URL if shortening fails
-  }
-
-  async function buildCitationAppend(selection) {
+  function buildCitationAppend(selection) {
     const rawText = selection.toString();
     const range = selection.getRangeAt(0).cloneRange();
     const frag = range.cloneContents();
@@ -129,13 +117,8 @@
       ([a], [b]) => Number(a) - Number(b)
     );
 
-    const refsText = await Promise.all(
-      sorted.map(async ([n, ref]) => `[${n}] ${await shortenURL(ref)}`)
-    ).then(lines => lines.join("\n"));
-
-    const refsHTML = await Promise.all(
-      sorted.map(async ([n, ref]) => `<li>[${n}] ${await shortenURL(ref)}</li>`)
-    ).then(lines => lines.join(""));
+    const refsText = sorted.map(([n, ref]) => `[${n}] ${ref}`).join("\n");
+    const refsHTML = sorted.map(([n, ref]) => `<li>[${n}] ${ref}</li>`).join("");
 
     const paperTitle =
       document.querySelector('h1')?.textContent.trim() ||

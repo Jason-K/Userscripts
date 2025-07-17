@@ -77,34 +77,12 @@
     }
   }
 
-  async function shortenURL(url) {
-    try {
-      const response = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`);
-      if (response.ok) {
-        return await response.text();
-      }
-    } catch (error) {
-      console.error("Error shortening URL:", error);
-    }
-    return url; // Fallback to original URL if shortening fails
-  }
-
-  async function copySelectionWithCitations() {
+  function copySelectionWithCitations() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
 
     const selectedText = sel.toString();
-    const citations = await Promise.all(
-        extractCitations(sel).map(async (citation) => {
-            const match = citation.match(/\[(\d+)\] (.+)/);
-            if (match) {
-                const [_, label, url] = match;
-                const shortened = await shortenURL(url);
-                return `[${label}] ${shortened}`;
-            }
-            return citation;
-        })
-    );
+    const citations = extractCitations(sel);
 
     const pageTitle = document.title.trim();
     const pageURL = window.location.href;

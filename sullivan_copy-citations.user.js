@@ -1,11 +1,9 @@
 // ==UserScript==
-// @name         Consensus Copy with Citation Links (Sorted)
+// @name         Sullivan Copy with Citations
 // @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  Appends sorted, deduplicated citation links when copying from consensus.app
-// @match        *://consensus.app/*
-// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/consensus_copy-citations.user.js
-// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/consensus_copy-citations.user.js
+// @version      1.0
+// @description  Appends citation links when copying from app.sullivanoncomp.com
+// @match        https://app.sullivanoncomp.com/*
 // @grant        none
 // ==/UserScript==
 
@@ -59,19 +57,6 @@
     }
   }
 
-  // Intercept Cmd/Ctrl+C
-  document.addEventListener("copy", (e) => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-
-    const { plain, html } = buildCitationAppend(sel);
-    if (plain && html) {
-      e.clipboardData.setData("text/plain", plain);
-      e.clipboardData.setData("text/html", html);
-      e.preventDefault();
-    }
-  });
-
   function copyWithCitations() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
@@ -86,17 +71,18 @@
     document.execCommand("copy");
   }
 
-  async function buildCitationAppend(selection) {
+  function buildCitationAppend(selection) {
     const range = selection.getRangeAt(0).cloneRange();
     const frag = range.cloneContents();
     const citations = new Map(); // Map<label, href>
 
-    frag.querySelectorAll('a[href*="/papers/"]').forEach((a) => {
-        const label = a.textContent.trim();
-        if (/^\d+$/.test(label)) {
-            citations.set(label, a.href); // deduplicates automatically
-            a.textContent = `[${label}]`; // inline bracket replacement
-        }
+    frag.querySelectorAll('a.footnote-link').forEach((a) => {
+      const label = a.textContent.trim();
+      const href = a.getAttribute("href");
+      if (label && href) {
+        citations.set(label, href); // deduplicates automatically
+        a.textContent = label; // inline bracket replacement
+      }
     });
 
     const container = document.createElement("div");
@@ -106,26 +92,20 @@
 
     // Sort citation map entries numerically by label
     const sorted = Array.from(citations.entries()).sort(
-        ([a], [b]) => Number(a) - Number(b)
+      ([a], [b]) => Number(a.replace(/[^\d]/g, "")) - Number(b.replace(/[^\d]/g, ""))
     );
 
-    const refsText = sorted.length > 0
-        ? sorted.map(([n, url]) => `[${n}] ${url}`).join("\n")
-        : "No references found.";
+    const refsText = sorted
+      .map(([label, href]) => `${label} ${window.location.origin}${href}`)
+      .join("\n");
 
-    const refsHTML = sorted.length > 0
-        ? sorted.map(([n, url]) => `<li>[${n}] <a href="${url}">${url}</a></li>`).join("")
-        : "<li>No references found.</li>";
-
-    const pageTitle = document.title.trim() || "Untitled Page";
-    const pageURL = window.location.href;
-
-    const sourceText = `Source:\n"${pageTitle}" (${pageURL})`;
-    const sourceHTML = `<p><strong>Source:</strong><br>"<em>${pageTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
+    const refsHTML = sorted
+      .map(([label, href]) => `<li>${label} <a href="${window.location.origin}${href}">${window.location.origin}${href}</a></li>`)
+      .join("");
 
     return {
-        plain: `${normalizedPlain}\n\n${sourceText}\n\nReferences:\n${refsText}`,
-        html: `<div>${normalizedHTML}${sourceHTML}<p><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
+      plain: `${normalizedPlain}\n\nReferences:\n${refsText}`,
+      html: `<div>${normalizedHTML}<p><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
     };
-}
+  }
 })();
