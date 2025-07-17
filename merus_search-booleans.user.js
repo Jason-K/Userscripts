@@ -232,9 +232,12 @@
                 console.log(`Row ${index}: Final OR result: ${shouldShow}`);
             }
 
-            // Apply visibility and highlighting
+            // Apply visibility and highlighting for infinite scroll table
             if (shouldShow) {
-                row.style.display = '';
+                // Reset visibility for shown rows
+                row.style.visibility = '';
+                row.style.height = '';
+                row.style.opacity = '';
                 filteredRowCount++;
                 
                 // Highlight matches in description cell only
@@ -245,7 +248,10 @@
                 
                 console.log(`Row ${index}: SHOWN - "${originalText}"`);
             } else {
-                row.style.display = 'none';
+                // Hide rows in infinite scroll table (position: absolute ignores display: none)
+                row.style.visibility = 'hidden';
+                row.style.height = '0px';
+                row.style.opacity = '0';
                 
                 // Remove highlights from hidden rows
                 if (cell) {
@@ -431,12 +437,15 @@
         return true;
     }
 
-    // Clear all filters and highlights
+    // Clear all filters and highlights for infinite scroll table
     function clearFilters() {
         console.log('Clearing all filters');
         const allRows = document.querySelectorAll(SELECTORS.tableRow);
         allRows.forEach(row => {
-            row.style.display = '';
+            // Reset infinite scroll table row visibility
+            row.style.visibility = '';
+            row.style.height = '';
+            row.style.opacity = '';
             
             // Remove highlights from description cell
             const descCell = row.querySelector(SELECTORS.descriptionCell);
