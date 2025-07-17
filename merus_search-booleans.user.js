@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
 // @namespace    http://tampermonkey.net/
-// @version      2.4.4
+// @version      2.4
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @author       You
 // @match        https://*.meruscase.com/*
@@ -18,7 +18,6 @@
         caseInsensitive: true,
         debounceDelay: 300,
         debug: true,
-        storageKey: 'merus_enhanced_query',
         highlightColor: '#ffeb3b',
         excludeColor: '#f44336',
         checkInterval: 2000, // Check every 2 seconds for missing UI
@@ -270,16 +269,27 @@
                 console.log(`Row ${index}: Final OR result: ${shouldShow}`);
             }
 
-            // Apply visibility using multiple hiding methods for infinite scroll tables
+            // Apply visibility using ultra-aggressive hiding methods
             if (shouldShow) {
-                // Reset all hiding methods
+                // Reset all hiding methods and classes
                 row.style.visibility = '';
                 row.style.height = '';
                 row.style.opacity = '';
                 row.style.display = '';
                 row.style.position = '';
                 row.style.top = '';
-                row.classList.remove('merus-hidden');
+                row.style.left = '';
+                row.style.width = '';
+                row.style.minHeight = '';
+                row.style.maxHeight = '';
+                row.style.minWidth = '';
+                row.style.maxWidth = '';
+                row.style.margin = '';
+                row.style.padding = '';
+                row.style.border = '';
+                row.style.zIndex = '';
+                row.style.pointerEvents = '';
+                row.classList.remove('merus-hidden', 'merus-filtered-out');
                 filteredRowCount++;
                 
                 const allTerms = [...include, ...orGroups.flat()].filter(term => term && term.length > 0);
@@ -289,20 +299,30 @@
                 
                 console.log(`Row ${index}: SHOWN - "${originalText}"`);
             } else {
-                // Use multiple hiding methods to ensure row is hidden
+                // Use dual approach: aggressive CSS class + inline styles
+                row.classList.add('merus-hidden');
+                row.classList.add('merus-filtered-out');
+                
+                // Also set inline styles as backup
                 row.style.visibility = 'hidden';
                 row.style.height = '0px';
                 row.style.opacity = '0';
                 row.style.display = 'none';
                 row.style.position = 'absolute';
-                row.style.top = '-9999px';
-                row.classList.add('merus-hidden');
+                row.style.top = '-10000px';
+                row.style.left = '-10000px';
+                row.style.width = '0px';
+                row.style.minHeight = '0px';
+                row.style.maxHeight = '0px';
+                row.style.overflow = 'hidden';
+                row.style.zIndex = '-1000';
+                row.style.pointerEvents = 'none';
                 
                 if (cell) {
                     cell.innerHTML = originalText;
                 }
                 
-                console.log(`Row ${index}: HIDDEN - "${originalText}"`);
+                console.log(`Row ${index}: HIDDEN with ultra-aggressive styles - "${originalText}"`);
             }
         });
 
@@ -341,8 +361,13 @@
     function updateFilterBadge(parsedQuery) {
         if (!filterBadge) return;
 
-        const { include, exclude, orGroups } = parsedQuery;
+        const { include, exclude, orGroups, rawQuery } = parsedQuery;
         let summary = '';
+
+        // Show the original query being processed
+        if (rawQuery) {
+            summary += `<span style="color:black"><b>Processing:</b> "${rawQuery}"</span><br>`;
+        }
 
         if (include.length > 0) {
             summary += `<span style="color:green"><b>Include:</b> ${include.join(', ')}</span><br>`;
@@ -351,11 +376,17 @@
             summary += `<span style="color:blue"><b>OR:</b> ${orGroups.map(g => '(' + g.join(' OR ') + ')').join(' ')}</span><br>`;
         }
         if (exclude.length > 0) {
-            summary += `<span style="color:red"><b>Exclude:</b> ${exclude.join(', ')}</span>`;
+            summary += `<span style="color:red"><b>Exclude:</b> ${exclude.join(', ')}</span><br>`;
+            
+            // Check if we have very few rows (indicating native search limitation)
+            const allRows = document.querySelectorAll(SELECTORS.tableRow);
+            if (allRows.length < 10) {
+                summary += `<span style="color:red; font-size:0.8em;"><b>⚠️ Warning:</b> Only ${allRows.length} rows available. Native search may have pre-filtered results. Try searching "${include.join(' ')}" first.</span>`;
+            }
         }
 
         if (summary) {
-            filterBadge.innerHTML = `<b>Filter Summary:</b><br>${summary}`;
+            filterBadge.innerHTML = `<b>Enhanced Boolean Search:</b><br>${summary}`;
             filterBadge.style.display = 'block';
         } else {
             filterBadge.style.display = 'none';
@@ -482,15 +513,10 @@
             }
         }
 
-        // Restore saved state
+        // Restore saved state (enhanced mode only, not search queries)
         const savedEnabled = localStorage.getItem('merus_enhanced_enabled');
         if (savedEnabled !== null) {
             enhancedEnabled = savedEnabled === 'true';
-        }
-
-        const savedQuery = localStorage.getItem(CONFIG.storageKey);
-        if (savedQuery && searchInput.value !== savedQuery) {
-            searchInput.value = savedQuery;
         }
 
         console.log('UI initialized successfully');
@@ -547,53 +573,23 @@
 
     function handleSearchInput(e) {
         const query = e.target.value;
-        localStorage.setItem(CONFIG.storageKey, query);
+        
+        // Debug logging
+        console.log('handleSearchInput called with:', query);
 
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
             if (enhancedEnabled) {
-                // Parse the query to check for exclusions
-                const { include, exclude, orGroups } = parseQuery(query);
-                
-                // If we have exclude terms, we need to bypass MerusCase's native filtering
-                // by setting the search input to only include terms, then applying our own filtering
-                if (exclude.length > 0 && query.trim()) {
-                    console.log('Detected exclude terms, bypassing native search...');
-                    
-                    // Temporarily disable our event listener to prevent recursion
-                    e.target.removeEventListener('input', handleSearchInput);
-                    
-                    // Set search to only include terms to get broader results
-                    const broadQuery = include.join(' ');
-                    if (broadQuery !== e.target.value) {
-                        e.target.value = broadQuery;
-                        console.log(`Broadened native search from "${query}" to "${broadQuery}"`);
-                        
-                        // Trigger native search with broader query
-                        const event = new Event('input', { bubbles: true });
-                        e.target.dispatchEvent(event);
-                        
-                        // Wait for native search to complete, then apply our filtering
-                        setTimeout(() => {
-                            console.log('Applying enhanced filtering to broader results...');
-                            applyFilters(query); // Use original query with exclusions
-                            
-                            // Restore our event listener
-                            e.target.addEventListener('input', handleSearchInput);
-                            
-                            // Restore original query display (but don't trigger search)
-                            e.target.value = query;
-                        }, 500);
-                        
-                        return;
+                if (query.trim()) {
+                    // Check if the query has exclusions that might be limited by native search
+                    const { include, exclude, orGroups } = parseQuery(query);
+                    if (exclude.length > 0) {
+                        console.warn('Notice: Query contains exclusions. MerusCase native search may limit results.');
+                        console.log('Full query being processed:', query);
+                        console.log('Include terms:', include);
+                        console.log('Exclude terms:', exclude);
                     }
                     
-                    // Restore event listener if we didn't change the value
-                    e.target.addEventListener('input', handleSearchInput);
-                }
-                
-                // Normal filtering for queries without exclusions
-                if (query.trim()) {
                     applyFilters(query);
                 } else {
                     clearFilters();
@@ -628,16 +624,31 @@
                 min-width: 200px;
             }
             
-            /* Force hide filtered rows */
+            /* Ultra-aggressive hiding for filtered rows */
             .merus-hidden {
                 display: none !important;
                 visibility: hidden !important;
                 opacity: 0 !important;
                 height: 0px !important;
+                min-height: 0px !important;
+                max-height: 0px !important;
                 overflow: hidden !important;
                 position: absolute !important;
-                top: -9999px !important;
-                left: -9999px !important;
+                top: -10000px !important;
+                left: -10000px !important;
+                width: 0px !important;
+                min-width: 0px !important;
+                max-width: 0px !important;
+                margin: 0px !important;
+                padding: 0px !important;
+                border: none !important;
+                z-index: -1000 !important;
+                pointer-events: none !important;
+            }
+            
+            /* Alternative approach - completely remove from layout */
+            .merus-filtered-out {
+                display: none !important;
             }
         `;
         document.head.appendChild(styles);
@@ -678,9 +689,9 @@
             return false;
         }
 
-        // Apply saved query if exists and enhanced mode is enabled
+        // Apply saved query if exists and enhanced mode is enabled (removed - no query persistence)
         if (enhancedEnabled && searchInput.value.trim()) {
-            console.log('Applying saved query:', searchInput.value);
+            console.log('Processing existing query in search box:', searchInput.value);
             applyFilters(searchInput.value);
         }
 
