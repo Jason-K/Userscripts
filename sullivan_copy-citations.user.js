@@ -97,17 +97,23 @@
       ([a], [b]) => Number(a.replace(/[^\d]/g, "")) - Number(b.replace(/[^\d]/g, ""))
     );
 
-    const refsText = sorted
-      .map(([label, href]) => `${label} ${window.location.origin}${href}`)
-      .join("\n");
+    const refsText = sorted.length > 0
+      ? sorted.map(([label, href]) => `${label} ${window.location.origin}${href}`).join("\n")
+      : "No references found.";
 
-    const refsHTML = sorted
-      .map(([label, href]) => `<li>${label} <a href="${window.location.origin}${href}">${window.location.origin}${href}</a></li>`)
-      .join("");
+    const refsHTML = sorted.length > 0
+      ? sorted.map(([label, href]) => `<li>${label} <a href="${window.location.origin}${href}">${window.location.origin}${href}</a></li>`).join("")
+      : "<li>No references found.</li>";
+
+    const pageTitle = document.title.trim() || "Untitled Page";
+    const pageURL = window.location.href;
+
+    const sourceText = `Source:\n"${pageTitle}" (${pageURL})`;
+    const sourceHTML = `<p><strong>Source:</strong><br>"<em>${pageTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
 
     return {
-      plain: `${normalizedPlain}\n\nReferences:\n${refsText}`,
-      html: `<div>${normalizedHTML}<p><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
+      plain: `${normalizedPlain}\n\n${sourceText}\n\nReferences:\n${refsText}`,
+      html: `<div>${normalizedHTML}${sourceHTML}<p><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
     };
   }
 })();

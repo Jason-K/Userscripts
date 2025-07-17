@@ -81,26 +81,12 @@
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
 
-    const selectedText = sel.toString();
-    const citations = extractCitations(sel);
-
-    const pageTitle = document.title.trim();
-    const pageURL = window.location.href;
-
-    const sourceText = `Source:\n"${pageTitle}" (${pageURL})`;
-    const sourceHTML = `<p><strong>Source:</strong><br>"<em>${pageTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
-
-    const label = getReferenceLabel();
-    const textBlock = `\n\n${label}:\n${citations.join("\n")}`;
-    const htmlBlock = `<p><strong>${label}:</strong></p><ul>` + citations.map(c => `<li>${c}</li>`).join("") + "</ul>";
-
-    const finalText = `${selectedText}\n\n${sourceText}${textBlock}`;
-    const finalHTML = `<div>${getHTMLFromSelection()}${sourceHTML}${htmlBlock}</div>`;
+    const { plain, html } = buildCitationAppend(sel);
 
     // Copy both text and HTML
     const listener = (e) => {
-        e.clipboardData.setData("text/plain", finalText);
-        e.clipboardData.setData("text/html", finalHTML);
+        e.clipboardData.setData("text/plain", plain);
+        e.clipboardData.setData("text/html", html);
         e.preventDefault();
     };
 
@@ -153,5 +139,26 @@
     const div = document.createElement("div");
     div.appendChild(fragment);
     return div.innerHTML;
+  }
+
+  function buildCitationAppend(selection) {
+    const sel = window.getSelection();
+    const selectedText = sel.toString();
+    const citations = extractCitations(sel);
+
+    const pageTitle = document.title.trim();
+    const pageURL = window.location.href;
+
+    const sourceText = `Source:\n"${pageTitle}" (${pageURL})`;
+    const sourceHTML = `<p><strong>Source:</strong><br>"<em>${pageTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
+
+    const label = getReferenceLabel();
+    const textBlock = citations.length > 0 ? `\n\n${label}:\n${citations.join("\n")}` : "\n\nNo references found.";
+    const htmlBlock = citations.length > 0 ? `<p><strong>${label}:</strong></p><ul>` + citations.map(c => `<li>${c}</li>`).join("") + "</ul>" : "<p>No references found.</p>";
+
+    const finalText = `${selectedText}\n\n${sourceText}${textBlock}`;
+    const finalHTML = `<div>${getHTMLFromSelection()}${sourceHTML}${htmlBlock}</div>`;
+
+    return { plain: finalText, html: finalHTML };
   }
 })();

@@ -131,6 +131,14 @@
     const sourceText = `Source:\n"${pageTitle}" (${pageURL})`;
     const sourceHTML = `<p><strong>Source:</strong><br>"<em>${pageTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
 
+    // Fallback for plain text without citations
+    if (citations.size === 0) {
+        return {
+            plain: `${normalizedPlain}\n\n${sourceText}`,
+            html: `<div>${normalizedHTML}${sourceHTML}</div>`
+        };
+    }
+
     return {
         plain: `${normalizedPlain}\n\n${sourceText}\n\nReferences:\n${refsText}`,
         html: `<div>${normalizedHTML}${sourceHTML}<p><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
