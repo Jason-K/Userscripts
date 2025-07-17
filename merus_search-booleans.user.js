@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         MerusCase Enhanced Boolean Search
+// @name         MerusCase Enhanced Boolean Search (Fixed)
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Adds AND, OR, NOT, +, and - logic to MerusCase Activity View search with enhanced filtering
+// @version      2.1
+// @description  Fixed boolean search for MerusCase Activity View - searches description only
 // @author       You
 // @match        https://*.meruscase.com/*
 // @grant        none
@@ -28,9 +28,6 @@
         tableContainer: '.table-container',
         tableRow: 'tr[data-id]',
         descriptionCell: 'td[data-merus-help-id="activities-description"]',
-        userCell: 'td[data-merus-help-id="activities-user"]',
-        tagCell: 'td[data-merus-help-id="activities-type"]',
-        dateCell: 'td[data-merus-help-id="activities-date"]',
         controlsContainer: '.table-controls',
         paginationStats: '.pagination-stats .index-stats'
     };
@@ -42,86 +39,105 @@
     let toggleButton = null;
     let filterBadge = null;
 
-    // Enhanced query parsing with better boolean logic
+    // Fixed query parsing with proper boolean logic
     function parseQuery(input) {
         if (!input || !input.trim()) {
-            return { include: [], exclude: [], orGroups: [], notTerms: [] };
+            return { include: [], exclude: [], orGroups: [], rawQuery: '' };
         }
 
-        // Normalize the input
-        const normalized = input.toLowerCase().trim();
+        const rawQuery = input.trim();
+        console.log('Parsing query:', rawQuery);
         
-        // Split on major operators while preserving quotes
+        // Normalize for processing but keep original for display
+        let normalized = CONFIG.caseInsensitive ? rawQuery.toLowerCase() : rawQuery;
+        
+        // Split on spaces but preserve quoted strings
         const tokens = normalized.match(/(?:"[^"]*"|[^\s"]+)/g) || [];
+        console.log('Tokens:', tokens);
         
         const include = [];
         const exclude = [];
         const orGroups = [];
-        const notTerms = [];
         
         let i = 0;
         while (i < tokens.length) {
             let token = tokens[i].replace(/"/g, ''); // Remove quotes
             
-            // Handle NOT operator
-            if (token === 'not' && i + 1 < tokens.length) {
-                notTerms.push(tokens[i + 1].replace(/"/g, ''));
+            // Handle NOT operator (must be followed by a term)
+            if (token.toLowerCase() === 'not' && i + 1 < tokens.length) {
+                const nextToken = tokens[i + 1].replace(/"/g, '');
+                exclude.push(nextToken);
+                console.log('Added to exclude via NOT:', nextToken);
                 i += 2;
                 continue;
             }
             
-            // Handle exclusion with minus
-            if (token.startsWith('-')) {
-                exclude.push(token.substring(1));
+            // Handle exclusion with minus prefix
+            if (token.startsWith('-') && token.length > 1) {
+                const excludeTerm = token.substring(1);
+                exclude.push(excludeTerm);
+                console.log('Added to exclude via -:', excludeTerm);
                 i++;
                 continue;
             }
             
-            // Handle inclusion with plus (optional, plus just means include)
-            if (token.startsWith('+')) {
+            // Handle inclusion with plus prefix (optional, just means include)
+            if (token.startsWith('+') && token.length > 1) {
                 include.push(token.substring(1));
                 i++;
                 continue;
             }
             
-            // Handle OR groups
-            if (i + 2 < tokens.length && tokens[i + 1] === 'or') {
+            // Handle OR groups - look ahead for OR
+            if (i + 2 < tokens.length && tokens[i + 1].toLowerCase() === 'or') {
                 const orGroup = [token];
                 i += 2; // Skip 'or'
                 orGroup.push(tokens[i].replace(/"/g, ''));
                 
                 // Continue collecting OR terms
-                while (i + 2 < tokens.length && tokens[i + 1] === 'or') {
+                while (i + 2 < tokens.length && tokens[i + 1].toLowerCase() === 'or') {
                     i += 2;
                     orGroup.push(tokens[i].replace(/"/g, ''));
                 }
                 
                 orGroups.push(orGroup);
+                console.log('Added OR group:', orGroup);
+                i++;
+                continue;
+            }
+            
+            // Skip standalone 'or' tokens (should be handled above)
+            if (token.toLowerCase() === 'or') {
                 i++;
                 continue;
             }
             
             // Regular include term
             include.push(token);
+            console.log('Added to include:', token);
             i++;
         }
 
-        return { include, exclude, orGroups, notTerms };
+        const result = { include, exclude, orGroups, rawQuery };
+        console.log('Parsed query result:', result);
+        return result;
     }
 
     // Enhanced text highlighting
     function highlightText(element, terms, className = 'merus-highlight') {
         if (!element || !terms.length) return;
         
+        // Store original text content
+        const originalText = element.textContent;
         let html = element.innerHTML;
         
-        // Remove previous highlights
-        html = html.replace(/<mark[^>]*>(.*?)<\/mark>/gi, '$1');
+        // Remove previous highlights but preserve other HTML
+        html = html.replace(/<mark[^>]*class="[^"]*merus-[^"]*"[^>]*>(.*?)<\/mark>/gi, '$1');
         
         // Apply new highlights
         terms.forEach(term => {
-            if (term.length > 1) {
-                const regex = new RegExp(`(${escapeRegExp(term)})`, 'gi');
+            if (term && term.length > 0) {
+                const regex = new RegExp(`(${escapeRegExp(term)})`, CONFIG.caseInsensitive ? 'gi' : 'g');
                 html = html.replace(regex, `<mark class="${className}">$1</mark>`);
             }
         });
@@ -133,31 +149,29 @@
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-    // Get searchable text from a row
-    function getRowText(row) {
-        const cells = {
-            description: row.querySelector(SELECTORS.descriptionCell),
-            user: row.querySelector(SELECTORS.userCell),
-            tag: row.querySelector(SELECTORS.tagCell),
-            date: row.querySelector(SELECTORS.dateCell)
-        };
-
-        const texts = [];
-        Object.values(cells).forEach(cell => {
-            if (cell && cell.textContent) {
-                texts.push(cell.textContent.trim());
-            }
-        });
-
+    // Get searchable text from description cell only
+    function getDescriptionText(row) {
+        const descCell = row.querySelector(SELECTORS.descriptionCell);
+        if (!descCell) {
+            console.log('No description cell found for row');
+            return { text: '', cell: null };
+        }
+        
+        const text = descCell.textContent.trim();
+        const normalizedText = CONFIG.caseInsensitive ? text.toLowerCase() : text;
+        
         return {
-            fullText: texts.join(' ').toLowerCase(),
-            cells: cells
+            text: normalizedText,
+            originalText: text,
+            cell: descCell
         };
     }
 
-    // Main filtering function
+    // Fixed filtering function with correct boolean logic
     function applyFilters(query) {
-        const { include, exclude, orGroups, notTerms } = parseQuery(query);
+        console.log('Applying filters for query:', query);
+        
+        const { include, exclude, orGroups } = parseQuery(query);
         const allRows = document.querySelectorAll(SELECTORS.tableRow);
         
         if (allRows.length === 0) {
@@ -168,57 +182,77 @@
         originalRowCount = allRows.length;
         filteredRowCount = 0;
 
-        allRows.forEach(row => {
-            const { fullText, cells } = getRowText(row);
+        allRows.forEach((row, index) => {
+            const { text, originalText, cell } = getDescriptionText(row);
+            
+            if (!cell) {
+                row.style.display = 'none';
+                return;
+            }
+            
             let shouldShow = true;
-
-            // Check include terms (ALL must match)
+            
+            // Step 1: Check include terms (ALL must match)
             if (include.length > 0) {
-                shouldShow = include.every(term => fullText.includes(term));
+                shouldShow = include.every(term => {
+                    const matches = text.includes(term);
+                    console.log(`Row ${index}: Include check "${term}" in "${text}": ${matches}`);
+                    return matches;
+                });
+                console.log(`Row ${index}: Include result: ${shouldShow}`);
             }
 
-            // Check exclude terms (NONE should match)
+            // Step 2: Check exclude terms (NONE should match) - only if still showing
             if (shouldShow && exclude.length > 0) {
-                shouldShow = !exclude.some(term => fullText.includes(term));
+                const hasExcluded = exclude.some(term => {
+                    const matches = text.includes(term);
+                    console.log(`Row ${index}: Exclude check "${term}" in "${text}": ${matches}`);
+                    return matches;
+                });
+                shouldShow = !hasExcluded; // Show if NO excluded terms are found
+                console.log(`Row ${index}: After exclude check: ${shouldShow}`);
             }
 
-            // Check NOT terms (NONE should match)
-            if (shouldShow && notTerms.length > 0) {
-                shouldShow = !notTerms.some(term => fullText.includes(term));
-            }
-
-            // Check OR groups (at least ONE group must have a match)
+            // Step 3: Check OR groups (at least ONE group must have a match) - only if still showing
             if (shouldShow && orGroups.length > 0) {
-                shouldShow = orGroups.some(group => 
-                    group.some(term => fullText.includes(term))
-                );
+                shouldShow = orGroups.some(group => {
+                    const groupMatch = group.some(term => {
+                        const matches = text.includes(term);
+                        console.log(`Row ${index}: OR group term "${term}" in "${text}": ${matches}`);
+                        return matches;
+                    });
+                    console.log(`Row ${index}: OR group ${group.join(' OR ')} result: ${groupMatch}`);
+                    return groupMatch;
+                });
+                console.log(`Row ${index}: Final OR result: ${shouldShow}`);
             }
 
-            // Show/hide row
+            // Apply visibility and highlighting
             if (shouldShow) {
                 row.style.display = '';
                 filteredRowCount++;
                 
-                // Highlight matches
-                const allTerms = [...include, ...notTerms, ...orGroups.flat()];
-                Object.values(cells).forEach(cell => {
-                    if (cell) {
-                        highlightText(cell, allTerms);
-                    }
-                });
+                // Highlight matches in description cell only
+                const allTerms = [...include, ...orGroups.flat()].filter(term => term && term.length > 0);
+                if (allTerms.length > 0) {
+                    highlightText(cell, allTerms);
+                }
+                
+                console.log(`Row ${index}: SHOWN - "${originalText}"`);
             } else {
                 row.style.display = 'none';
                 
                 // Remove highlights from hidden rows
-                Object.values(cells).forEach(cell => {
-                    if (cell) {
-                        cell.innerHTML = cell.textContent;
-                    }
-                });
+                if (cell) {
+                    cell.innerHTML = originalText;
+                }
+                
+                console.log(`Row ${index}: HIDDEN - "${originalText}"`);
             }
         });
 
-        updateUI(query, { include, exclude, orGroups, notTerms });
+        console.log(`Filter results: ${filteredRowCount} of ${originalRowCount} rows shown`);
+        updateUI(query, { include, exclude, orGroups });
         updateStats();
     }
 
@@ -226,8 +260,20 @@
     function updateStats() {
         const statsElement = document.querySelector(SELECTORS.paginationStats);
         if (statsElement && enhancedEnabled) {
-            statsElement.textContent = `${filteredRowCount} of ${originalRowCount} Items (Filtered)`;
-            statsElement.style.backgroundColor = filteredRowCount < originalRowCount ? '#4caf50' : '';
+            const originalText = statsElement.textContent;
+            if (filteredRowCount !== originalRowCount) {
+                statsElement.textContent = `${filteredRowCount} of ${originalRowCount} Items (Filtered)`;
+                statsElement.style.backgroundColor = '#4caf50';
+                statsElement.style.color = 'white';
+                statsElement.style.padding = '2px 6px';
+                statsElement.style.borderRadius = '3px';
+            } else {
+                // Reset to original appearance when no filtering
+                statsElement.style.backgroundColor = '';
+                statsElement.style.color = '';
+                statsElement.style.padding = '';
+                statsElement.style.borderRadius = '';
+            }
         }
     }
 
@@ -241,24 +287,21 @@
         updateFilterBadge(parsedQuery);
     }
 
-    // Create or update the filter summary badge
+    // Create or update the filter summary badge with fixed positioning
     function updateFilterBadge(parsedQuery) {
         if (!filterBadge) return;
 
-        const { include, exclude, orGroups, notTerms } = parsedQuery;
+        const { include, exclude, orGroups } = parsedQuery;
         let summary = '';
 
         if (include.length > 0) {
             summary += `<span style="color:green"><b>Include:</b> ${include.join(', ')}</span><br>`;
         }
-        if (exclude.length > 0) {
-            summary += `<span style="color:red"><b>Exclude:</b> ${exclude.join(', ')}</span><br>`;
-        }
-        if (notTerms.length > 0) {
-            summary += `<span style="color:red"><b>NOT:</b> ${notTerms.join(', ')}</span><br>`;
-        }
         if (orGroups.length > 0) {
-            summary += `<span style="color:blue"><b>OR:</b> ${orGroups.map(g => '(' + g.join(' OR ') + ')').join(' ')}</span>`;
+            summary += `<span style="color:blue"><b>OR:</b> ${orGroups.map(g => '(' + g.join(' OR ') + ')').join(' ')}</span><br>`;
+        }
+        if (exclude.length > 0) {
+            summary += `<span style="color:red"><b>Exclude:</b> ${exclude.join(', ')}</span>`;
         }
 
         if (summary) {
@@ -269,17 +312,16 @@
         }
     }
 
-    // Initialize the enhanced search UI
+    // Initialize the enhanced search UI with fixed positioning
     function initializeUI() {
         const searchInput = document.querySelector(SELECTORS.searchInput);
-        const controlsContainer = document.querySelector(SELECTORS.controlsContainer);
         
-        if (!searchInput || !controlsContainer) {
-            console.log('Search input or controls container not found');
+        if (!searchInput) {
+            console.log('Search input not found');
             return false;
         }
 
-        // Create toggle button
+        // Create toggle button with better positioning
         if (!toggleButton) {
             toggleButton = document.createElement('button');
             toggleButton.id = 'chatgpt-boolean-toggle';
@@ -293,11 +335,15 @@
                 border: 1px solid #388e3c;
                 border-radius: 3px;
                 cursor: pointer;
+                white-space: nowrap;
+                display: inline-block;
             `;
             
-            toggleButton.addEventListener('click', () => {
+            toggleButton.addEventListener('click', (e) => {
+                e.preventDefault();
                 enhancedEnabled = !enhancedEnabled;
                 localStorage.setItem('merus_enhanced_enabled', enhancedEnabled);
+                console.log('Enhanced mode toggled:', enhancedEnabled);
                 
                 if (enhancedEnabled) {
                     applyFilters(searchInput.value);
@@ -306,14 +352,14 @@
                 }
             });
 
-            // Insert after the search input group
+            // Insert toggle button in a more stable location
             const inputGroup = searchInput.closest('.input-group');
-            if (inputGroup) {
+            if (inputGroup && inputGroup.parentNode) {
                 inputGroup.parentNode.insertBefore(toggleButton, inputGroup.nextSibling);
             }
         }
 
-        // Create filter badge
+        // Create filter badge with fixed positioning
         if (!filterBadge) {
             filterBadge = document.createElement('div');
             filterBadge.id = 'chatgpt-boolean-badge';
@@ -325,9 +371,17 @@
                 border-radius: 4px;
                 font-size: 0.9em;
                 display: none;
+                width: auto;
+                max-width: 500px;
+                position: relative;
+                z-index: 10;
+                word-wrap: break-word;
             `;
             
-            toggleButton.parentNode.insertBefore(filterBadge, toggleButton.nextSibling);
+            // Insert badge after toggle button for better stability
+            if (toggleButton && toggleButton.parentNode) {
+                toggleButton.parentNode.insertBefore(filterBadge, toggleButton.nextSibling);
+            }
         }
 
         // Restore saved state
@@ -341,35 +395,39 @@
             searchInput.value = savedQuery;
         }
 
+        console.log('UI initialized successfully');
         return true;
     }
 
     // Clear all filters and highlights
     function clearFilters() {
+        console.log('Clearing all filters');
         const allRows = document.querySelectorAll(SELECTORS.tableRow);
         allRows.forEach(row => {
             row.style.display = '';
             
-            // Remove highlights
-            [SELECTORS.descriptionCell, SELECTORS.userCell, SELECTORS.tagCell, SELECTORS.dateCell]
-                .forEach(selector => {
-                    const cell = row.querySelector(selector);
-                    if (cell) {
-                        cell.innerHTML = cell.textContent;
-                    }
-                });
+            // Remove highlights from description cell
+            const descCell = row.querySelector(SELECTORS.descriptionCell);
+            if (descCell) {
+                const originalText = descCell.textContent;
+                descCell.innerHTML = originalText;
+            }
         });
 
         // Reset stats
         const statsElement = document.querySelector(SELECTORS.paginationStats);
         if (statsElement) {
-            statsElement.textContent = `${allRows.length} Items`;
             statsElement.style.backgroundColor = '';
+            statsElement.style.color = '';
+            statsElement.style.padding = '';
+            statsElement.style.borderRadius = '';
         }
 
         if (filterBadge) {
             filterBadge.style.display = 'none';
         }
+        
+        filteredRowCount = allRows.length;
     }
 
     // Setup event listeners
@@ -418,6 +476,12 @@
                 padding: 1px 2px;
                 border-radius: 2px;
             }
+            
+            /* Ensure filter badge stays visible on resize */
+            #chatgpt-boolean-badge {
+                box-sizing: border-box;
+                min-width: 200px;
+            }
         `;
         document.head.appendChild(styles);
     }
@@ -431,7 +495,7 @@
             return false;
         }
 
-        console.log('Initializing MerusCase Enhanced Boolean Search...');
+        console.log('Initializing MerusCase Enhanced Boolean Search v2.1...');
         
         addStyles();
         
@@ -447,6 +511,7 @@
 
         // Apply saved query if exists and enhanced mode is enabled
         if (enhancedEnabled && searchInput.value.trim()) {
+            console.log('Applying saved query:', searchInput.value);
             applyFilters(searchInput.value);
         }
 
