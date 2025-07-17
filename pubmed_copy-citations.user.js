@@ -4,6 +4,8 @@
 // @version      1.0
 // @description  Appends citation links when copying from PMC with references like "#B34"
 // @match        *://pmc.ncbi.nlm.nih.gov/articles/*
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/pubmed_copy-citations.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/pubmed_copy-citations.user.js
 // @grant        none
 // ==/UserScript==
 
