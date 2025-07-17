@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
 // @namespace    http://tampermonkey.net/
-// @version      2.4.3
+// @version      2.4.4
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @author       You
 // @match        https://*.meruscase.com/*
@@ -552,6 +552,47 @@
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
             if (enhancedEnabled) {
+                // Parse the query to check for exclusions
+                const { include, exclude, orGroups } = parseQuery(query);
+                
+                // If we have exclude terms, we need to bypass MerusCase's native filtering
+                // by setting the search input to only include terms, then applying our own filtering
+                if (exclude.length > 0 && query.trim()) {
+                    console.log('Detected exclude terms, bypassing native search...');
+                    
+                    // Temporarily disable our event listener to prevent recursion
+                    e.target.removeEventListener('input', handleSearchInput);
+                    
+                    // Set search to only include terms to get broader results
+                    const broadQuery = include.join(' ');
+                    if (broadQuery !== e.target.value) {
+                        e.target.value = broadQuery;
+                        console.log(`Broadened native search from "${query}" to "${broadQuery}"`);
+                        
+                        // Trigger native search with broader query
+                        const event = new Event('input', { bubbles: true });
+                        e.target.dispatchEvent(event);
+                        
+                        // Wait for native search to complete, then apply our filtering
+                        setTimeout(() => {
+                            console.log('Applying enhanced filtering to broader results...');
+                            applyFilters(query); // Use original query with exclusions
+                            
+                            // Restore our event listener
+                            e.target.addEventListener('input', handleSearchInput);
+                            
+                            // Restore original query display (but don't trigger search)
+                            e.target.value = query;
+                        }, 500);
+                        
+                        return;
+                    }
+                    
+                    // Restore event listener if we didn't change the value
+                    e.target.addEventListener('input', handleSearchInput);
+                }
+                
+                // Normal filtering for queries without exclusions
                 if (query.trim()) {
                     applyFilters(query);
                 } else {
