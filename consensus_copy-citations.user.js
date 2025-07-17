@@ -91,10 +91,15 @@
     const frag = range.cloneContents();
     const citations = new Map(); // Map<label, href>
 
-    frag.querySelectorAll('a[href*="/papers/"]').forEach((a) => {
+    // Debugging: Log the selected content
+    console.log("Selected content:", frag.textContent);
+
+    // Update citation extraction logic to handle broader cases
+    frag.querySelectorAll('a[href]').forEach((a) => {
         const label = a.textContent.trim();
-        if (/^\d+$/.test(label)) {
-            citations.set(label, a.href); // deduplicates automatically
+        const href = a.href;
+        if (label && href.includes("/papers/")) {
+            citations.set(label, href); // deduplicates automatically
             a.textContent = `[${label}]`; // inline bracket replacement
         }
     });
@@ -103,6 +108,9 @@
     container.appendChild(frag);
     const normalizedHTML = container.innerHTML;
     const normalizedPlain = container.textContent;
+
+    // Debugging: Log extracted citations
+    console.log("Extracted citations:", Array.from(citations.entries()));
 
     // Sort citation map entries numerically by label
     const sorted = Array.from(citations.entries()).sort(
