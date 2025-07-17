@@ -77,29 +77,53 @@
     }
   }
 
-  function copySelectionWithCitations() {
+  async function shortenURL(url) {
+    try {
+      const response = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`);
+      if (response.ok) {
+        return await response.text();
+      }
+    } catch (error) {
+      console.error("Error shortening URL:", error);
+    }
+    return url; // Fallback to original URL if shortening fails
+  }
+
+  async function copySelectionWithCitations() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
 
     const selectedText = sel.toString();
-    const citations = extractCitations(sel);
-    if (citations.length === 0) {
-      fallbackCopy(selectedText);
-      return;
-    }
+    const citations = await Promise.all(
+        extractCitations(sel).map(async (citation) => {
+            const match = citation.match(/\[(\d+)\] (.+)/);
+            if (match) {
+                const [_, label, url] = match;
+                const shortened = await shortenURL(url);
+                return `[${label}] ${shortened}`;
+            }
+            return citation;
+        })
+    );
+
+    const pageTitle = document.title.trim();
+    const pageURL = window.location.href;
+
+    const sourceText = `Source:\n"${pageTitle}" (${pageURL})`;
+    const sourceHTML = `<p><strong>Source:</strong><br>"<em>${pageTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
 
     const label = getReferenceLabel();
     const textBlock = `\n\n${label}:\n${citations.join("\n")}`;
     const htmlBlock = `<p><strong>${label}:</strong></p><ul>` + citations.map(c => `<li>${c}</li>`).join("") + "</ul>";
 
-    const finalText = selectedText + textBlock;
-    const finalHTML = `<div>${getHTMLFromSelection()}${htmlBlock}</div>`;
+    const finalText = `${selectedText}\n\n${sourceText}${textBlock}`;
+    const finalHTML = `<div>${getHTMLFromSelection()}${sourceHTML}${htmlBlock}</div>`;
 
     // Copy both text and HTML
     const listener = (e) => {
-      e.clipboardData.setData("text/plain", finalText);
-      e.clipboardData.setData("text/html", finalHTML);
-      e.preventDefault();
+        e.clipboardData.setData("text/plain", finalText);
+        e.clipboardData.setData("text/html", finalHTML);
+        e.preventDefault();
     };
 
     document.addEventListener("copy", listener, { once: true });

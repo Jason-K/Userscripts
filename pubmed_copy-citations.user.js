@@ -85,57 +85,74 @@
     document.execCommand("copy");
   }
 
-function buildCitationAppend(selection) {
-  const rawText = selection.toString();
-  const range = selection.getRangeAt(0).cloneRange();
-  const frag = range.cloneContents();
-
-  const citations = new Map();
-
-  const allMatches = [...rawText.matchAll(/\[(\d+)(?:[-–](\d+))?\]/g)];
-  const citationNums = new Set();
-
-  for (const match of allMatches) {
-    const start = parseInt(match[1], 10);
-    const end = match[2] ? parseInt(match[2], 10) : start;
-    for (let n = start; n <= end; n++) {
-      citationNums.add(n);
+  async function shortenURL(url) {
+    try {
+      const response = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`);
+      if (response.ok) {
+        return await response.text();
+      }
+    } catch (error) {
+      console.error("Error shortening URL:", error);
     }
+    return url; // Fallback to original URL if shortening fails
   }
 
-  for (const num of citationNums) {
-    const refId = "B" + num;
-    const refEl = document.getElementById(refId);
-    if (!refEl) continue;
+  async function buildCitationAppend(selection) {
+    const rawText = selection.toString();
+    const range = selection.getRangeAt(0).cloneRange();
+    const frag = range.cloneContents();
 
-    let refText = refEl.textContent.trim().replace(/\s+/g, " ");
-    refText = refText.replace(/\s*\[[^\]]+\]\s*/g, "").trim(); // strip [PubMed] etc.
-    citations.set(num.toString(), refText);
+    const citations = new Map();
+
+    const allMatches = [...rawText.matchAll(/\[(\d+)(?:[-–](\d+))?\]/g)];
+    const citationNums = new Set();
+
+    for (const match of allMatches) {
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : start;
+      for (let n = start; n <= end; n++) {
+        citationNums.add(n);
+      }
+    }
+
+    for (const num of citationNums) {
+      const refId = "B" + num;
+      const refEl = document.getElementById(refId);
+      if (!refEl) continue;
+
+      let refText = refEl.textContent.trim().replace(/\s+/g, " ");
+      refText = refText.replace(/\s*\[[^\]]+\]\s*/g, "").trim(); // strip [PubMed] etc.
+      citations.set(num.toString(), refText);
+    }
+
+    const sorted = Array.from(citations.entries()).sort(
+      ([a], [b]) => Number(a) - Number(b)
+    );
+
+    const refsText = await Promise.all(
+      sorted.map(async ([n, ref]) => `[${n}] ${await shortenURL(ref)}`)
+    ).then(lines => lines.join("\n"));
+
+    const refsHTML = await Promise.all(
+      sorted.map(async ([n, ref]) => `<li>[${n}] ${await shortenURL(ref)}</li>`)
+    ).then(lines => lines.join(""));
+
+    const paperTitle =
+      document.querySelector('h1')?.textContent.trim() ||
+      document.title.replace(" - PMC", "").trim();
+    const pageURL = window.location.href;
+
+    const sourceText = `Source:\n"${paperTitle}" (${pageURL})`;
+    const sourceHTML = `<p><strong>Source:</strong><br>"<em>${paperTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
+
+    const container = document.createElement("div");
+    container.appendChild(frag);
+    const normalizedHTML = container.innerHTML;
+    const normalizedPlain = container.textContent;
+
+    return {
+      plain: `${normalizedPlain}\n\n${sourceText}\n\nReferences:\n${refsText}`,
+      html: `<div>${normalizedHTML}${sourceHTML}<p><br><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
+    };
   }
-
-  const sorted = Array.from(citations.entries()).sort(
-    ([a], [b]) => Number(a) - Number(b)
-  );
-
-  const refsText = sorted.map(([n, ref]) => `[${n}] ${ref}`).join("\n");
-  const refsHTML = sorted.map(([n, ref]) => `<li>[${n}] ${ref}</li>`).join("");
-
-  const paperTitle =
-    document.querySelector('h1')?.textContent.trim() ||
-    document.title.replace(" - PMC", "").trim();
-  const pageURL = window.location.href;
-
-  const sourceText = `Source:\n"${paperTitle}" (${pageURL})`;
-  const sourceHTML = `<p><strong>Source:</strong><br>"<em>${paperTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
-
-  const container = document.createElement("div");
-  container.appendChild(frag);
-  const normalizedHTML = container.innerHTML;
-  const normalizedPlain = container.textContent;
-
-  return {
-    plain: `${normalizedPlain}\n\n${sourceText}\n\nReferences:\n${refsText}`,
-    html: `<div>${normalizedHTML}${sourceHTML}<p><br><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
-  };
-}
 })();

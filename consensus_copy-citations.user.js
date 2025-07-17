@@ -86,7 +86,7 @@
     document.execCommand("copy");
   }
 
-  function buildCitationAppend(selection) {
+  async function buildCitationAppend(selection) {
     const range = selection.getRangeAt(0).cloneRange();
     const frag = range.cloneContents();
     const citations = new Map(); // Map<label, href>
@@ -109,22 +109,35 @@
       ([a], [b]) => Number(a) - Number(b)
     );
 
-    const refsText = sorted
-      .map(([n, url]) => `[${n}] ${shortenURL(url)}`)
-      .join("\n");
+    const refsText = await Promise.all(
+      sorted.map(async ([n, url]) => `[${n}] ${await shortenURL(url)}`)
+    ).then(lines => lines.join("\n"));
 
-    const refsHTML = sorted
-      .map(([n, url]) => `<li>[${n}] <a href="${url}">${shortenURL(url)}</a></li>`)
-      .join("");
+    const refsHTML = await Promise.all(
+      sorted.map(async ([n, url]) => `<li>[${n}] <a href="${await shortenURL(url)}">${await shortenURL(url)}</a></li>`)
+    ).then(lines => lines.join(""));
+
+    const pageTitle = document.title.trim();
+    const pageURL = window.location.href;
+
+    const sourceText = `Source:\n"${pageTitle}" (${pageURL})`;
+    const sourceHTML = `<p><strong>Source:</strong><br>"<em>${pageTitle}</em>" (<a href="${pageURL}">${pageURL}</a>)</p>`;
 
     return {
-      plain: `${normalizedPlain}\n\nReferences:\n${refsText}`,
-      html: `<div>${normalizedHTML}<p><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
+      plain: `${normalizedPlain}\n\n${sourceText}\n\nReferences:\n${refsText}`,
+      html: `<div>${normalizedHTML}${sourceHTML}<p><strong>References:</strong></p><ul>${refsHTML}</ul></div>`
     };
   }
 
-  function shortenURL(url) {
-    const match = url.match(/\/papers\/[^/]+\/([a-f0-9]{16,})/);
-    return match ? `https://consensus.app/p/${match[1]}` : url;
+  async function shortenURL(url) {
+    try {
+      const response = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`);
+      if (response.ok) {
+        return await response.text();
+      }
+    } catch (error) {
+      console.error("Error shortening URL:", error);
+    }
+    return url; // Fallback to original URL if shortening fails
   }
 })();
