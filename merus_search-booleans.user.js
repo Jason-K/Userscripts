@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      2.4
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
-// @author       You
+// @author       Jason K.
 // @match        https://*.meruscase.com/*
 // @grant        none
 // @run-at       document-idle

@@ -2,6 +2,7 @@
 // @name         Userscript Bootstrap Loader
 // @namespace    https://github.com/Jason-K
 // @version      1.2
+// @author       Jason K.
 // @description  Dynamically loads and opens all user scripts listed in scripts-index.json
 // @match        https://github.com/*
 // @grant        none

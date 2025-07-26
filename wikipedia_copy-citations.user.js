@@ -2,6 +2,7 @@
 // @name         Wikipedia Citation Copier with Button
 // @namespace    http://tampermonkey.net/
 // @version      3.0
+// @author       Jason K.
 // @description  Adds a floating copy button to include references when copying text from Wikipedia
 // @match        *://*.wikipedia.org/*
 // @grant        none

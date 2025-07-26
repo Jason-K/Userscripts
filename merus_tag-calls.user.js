@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  Automatically apply activity tags based on note content in Meruscase
-// @author       You
+// @author       Jason K.
 // @match        https://meruscase.com/*
 // @match        https://*.meruscase.com/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_tag-calls.user.js

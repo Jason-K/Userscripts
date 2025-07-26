@@ -2,6 +2,7 @@
 // @name         UpToDate Copy with Citation Links (Sorted)
 // @namespace    http://tampermonkey.net/
 // @version      1.0
+// @author       Jason K.
 // @description  Appends sorted, deduplicated citation links when copying from uptodate.com
 // @match        *://*.uptodate.com/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/uptodate_copy-citations.user.js

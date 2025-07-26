@@ -2,6 +2,7 @@
 // @name         PMC Copy with Citations (PubMed-style IDs)
 // @namespace    http://tampermonkey.net/
 // @version      1.0
+// @author       Jason K.
 // @description  Appends citation links when copying from PMC with references like "#B34"
 // @match        *://pmc.ncbi.nlm.nih.gov/articles/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/pubmed_copy-citations.user.js

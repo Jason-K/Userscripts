@@ -2,6 +2,7 @@
 // @name         Consensus Copy with Citation Links (Sorted)
 // @namespace    http://tampermonkey.net/
 // @version      1.2
+// @author       Jason K.
 // @description  Appends sorted, deduplicated citation links when copying from consensus.app
 // @match        *://consensus.app/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/consensus_copy-citations.user.js
