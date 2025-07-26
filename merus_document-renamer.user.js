@@ -5,8 +5,8 @@
 // @description  Rename files in MerusCase based on a set of rules and auto-save.
 // @author       Jason K.
 // @match        *://*.meruscase.com/*
-// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/meruscase_renamer.user.js
-// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/meruscase_renamer.user.js
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_document-renamer.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_document-renamer.user.js
 // @supportURL   https://github.com/Jason-K/Userscripts/issues
 // @grant        none
 // ==/UserScript==

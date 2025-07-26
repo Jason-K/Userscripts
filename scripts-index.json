@@ -1,8 +1,12 @@
 [ 
     "consensus_copy-citations.user.js",
-    "wikipedia_copy-citations.user.js",
+    "merus_document-rename.user.js",
+    "merus_search-booleans.user.js",
     "merus_tab-send4spaces.user.js",
+    "merus_tag-calls.user.js",
     "pdrater_copy-rating.user.js",
     "pubmed_copy-citations.user.js",
-    "sullivan_copy-citations.user.js"
+    "sullivan_copy-citations.user.js",
+    "uptodate_copy-citations.user.js",
+    "wikipedia_copy-citations.user.js"
 ]
