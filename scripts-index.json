@@ -1,6 +1,6 @@
 [ 
     "consensus_copy-citations.user.js",
-    "merus_document-rename.user.js",
+    "merus_document-renamer.user.js",
     "merus_search-booleans.user.js",
     "merus_tab-send4spaces.user.js",
     "merus_tag-calls.user.js",
