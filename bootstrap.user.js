@@ -3,7 +3,7 @@
 // @namespace    https://github.com/Jason-K
 // @version      1.2
 // @description  Dynamically loads and opens all user scripts listed in scripts-index.json
-// @match        https://example.com/*
+// @match        https://github.com/*
 // @grant        none
 // ==/UserScript==
 
