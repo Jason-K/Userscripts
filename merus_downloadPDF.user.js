@@ -12,6 +12,8 @@
 (function () {
   'use strict';
 
+  // --- Utility Functions ---
+
   function waitForElement(selector, callback, timeout = 10000) {
     const start = Date.now();
     const interval = setInterval(() => {
@@ -26,32 +28,64 @@
     }, 300);
   }
 
-  function extractDateFromTitle(title) {
-    const dateMatch = title.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-    if (dateMatch) {
-      const [_, year, month, day] = dateMatch;
-      return `${year}.${month}.${day}`;
-    }
-    return "Undated";
+  function extractDateFromText(text) {
+    const match = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    return match ? `${match[1]}.${match[2]}.${match[3]}` : 'Undated';
   }
 
-  function extractFormattedName(rawTitle) {
-    try {
-      const match = rawTitle.split(" v.")[0];
-      const [last, first] = match.replace("DECEASED", "").split(",").map(s => s.trim()).filter(Boolean);
-      return first && last ? `${first} ${last}` : "Unknown Case";
-    } catch {
-      return "Unknown Case";
+  function extractCaseName() {
+    let candidate = document.querySelector('.pretty-name-span');
+    if (candidate && candidate.textContent.includes(',')) {
+      const [last, first] = candidate.textContent.replace("DECEASED", "").split(',').map(x => x.trim());
+      return first && last ? `${first} ${last}` : 'Unknown Case';
     }
+
+    // Fallback: try case caption header
+    const caption = [...document.querySelectorAll("span, h1, h2")].find(e => e.textContent.includes(" v. "));
+    if (caption) {
+      const [left] = caption.textContent.split(" v.");
+      const [last, first] = left.replace("DECEASED", "").split(',').map(s => s.trim());
+      return first && last ? `${first} ${last}` : 'Unknown Case';
+    }
+
+    return 'Unknown Case';
+  }
+
+  function extractTitle() {
+    // Primary: title span inside h5
+    const el = document.querySelector('h5 span');
+    if (el && el.textContent.includes('.pdf')) return el.textContent.trim();
+
+    // Fallbacks:
+    const alt = [...document.querySelectorAll('span, h1, h2')]
+      .map(e => e.textContent.trim())
+      .find(t => t.toLowerCase().includes('.pdf'));
+    return alt || 'Untitled Document';
+  }
+
+  function extractDownloadHref() {
+    const el = document.querySelector('a[aria-label="Download Document"]');
+    return el?.getAttribute('href') || '';
   }
 
   function sanitizeFilename(str) {
     return str.replace(/[\/:*?"<>|]/g, "-");
   }
 
-  function showToast(message, duration = 3000) {
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Copied to clipboard");
+      logDebug("Clipboard copied: " + text);
+    } catch (e) {
+      showToast("Clipboard error");
+      logDebug("Clipboard error: " + e.message);
+    }
+  }
+
+  function showToast(msg, duration = 3000) {
     const toast = document.createElement("div");
-    toast.textContent = message;
+    toast.textContent = msg;
     toast.style.cssText = `
       position: fixed;
       top: 100px;
@@ -61,8 +95,8 @@
       padding: 10px 15px;
       border-radius: 5px;
       z-index: 10001;
-      box-shadow: 2px 2px 10px rgba(0,0,0,0.4);
       font-size: 14px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.4);
       opacity: 0;
       transition: opacity 0.4s;
     `;
@@ -72,6 +106,17 @@
       toast.style.opacity = 0;
       setTimeout(() => toast.remove(), 400);
     }, duration);
+  }
+
+  function logDebug(message) {
+    const panel = document.getElementById("merus-debug-panel");
+    if (panel) {
+      const line = document.createElement("div");
+      line.textContent = `[${new Date().toISOString()}] ${message}`;
+      panel.appendChild(line);
+      panel.scrollTop = panel.scrollHeight;
+    }
+    console.log(message);
   }
 
   function setupDebugPanel() {
@@ -95,10 +140,9 @@
       box-shadow: 0 0 10px #000;
     `;
 
-    const toggleBtn = document.createElement("button");
-    toggleBtn.textContent = "🐞";
-    toggleBtn.title = "Toggle Debug Panel";
-    toggleBtn.style.cssText = `
+    const toggle = document.createElement("button");
+    toggle.textContent = "🐞";
+    toggle.style.cssText = `
       position: fixed;
       bottom: 0;
       right: 0;
@@ -112,93 +156,89 @@
       padding: 4px 8px;
       cursor: pointer;
     `;
-    toggleBtn.onclick = () => {
+    toggle.onclick = () => {
       panel.style.display = panel.style.display === "none" ? "block" : "none";
     };
 
     document.body.appendChild(panel);
-    document.body.appendChild(toggleBtn);
+    document.body.appendChild(toggle);
   }
 
-  function logDebug(message) {
-    const panel = document.getElementById("merus-debug-panel");
-    if (panel) {
-      const p = document.createElement("div");
-      p.textContent = `[${new Date().toISOString()}] ${message}`;
-      panel.appendChild(p);
-      panel.scrollTop = panel.scrollHeight;
-    }
-    console.log(message);
-  }
+  // --- Main UI & Actions ---
 
-  function addDownloadButton(downloadLink, docTitleEl, caseNameEl) {
+  function addButtons() {
     if (document.getElementById("quick-download-btn")) return;
 
-    const btn = document.createElement("button");
-    btn.innerText = "QUICK DOWNLOAD";
-    btn.id = "quick-download-btn";
-    btn.style.cssText = `
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = `
       position: fixed;
       top: 80px;
       right: 20px;
       z-index: 10000;
-      background: #2a7ae2;
-      color: white;
-      border: none;
-      padding: 10px 15px;
-      font-size: 14px;
-      border-radius: 5px;
-      cursor: pointer;
-      box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+      display: flex;
+      gap: 8px;
     `;
 
-    btn.onclick = async () => {
-      const originalTitle = docTitleEl?.innerText?.trim();
-      const caseTitle = caseNameEl?.getAttribute("title") || caseNameEl?.innerText;
-      const downloadHref = downloadLink?.getAttribute("href");
-
-      logDebug(`Original title: ${originalTitle}`);
-      logDebug(`Case title: ${caseTitle}`);
-      logDebug(`Download href: ${downloadHref}`);
-
-      if (!originalTitle || !caseTitle || !downloadHref) {
-        showToast("Missing elements for download");
-        logDebug("Aborted: missing document title or case info");
-        return;
-      }
-
-      const datePrefix = extractDateFromTitle(originalTitle);
-      const formattedName = extractFormattedName(caseTitle);
-      const newFilename = sanitizeFilename(`${datePrefix} - ${formattedName} - ${originalTitle}`);
-
-      try {
-        await navigator.clipboard.writeText(newFilename);
-        showToast("Filename copied to clipboard");
-        logDebug("Filename copied: " + newFilename);
-      } catch (e) {
-        showToast("Clipboard copy failed");
-        logDebug("Clipboard copy error: " + e.message);
-      }
-
-      const fullUrl = new URL(downloadHref, window.location.origin).href;
-      window.open(fullUrl, '_blank');
-      showToast("Opened download in new tab");
+    const createButton = (label, id, color, handler) => {
+      const btn = document.createElement("button");
+      btn.innerText = label;
+      btn.id = id;
+      btn.style.cssText = `
+        background: ${color};
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        font-size: 14px;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+      `;
+      btn.onclick = handler;
+      return btn;
     };
 
-    document.body.appendChild(btn);
+    const runFilenameLogic = () => {
+      const title = extractTitle();
+      const date = extractDateFromText(title);
+      const name = extractCaseName();
+      const clean = sanitizeFilename(`${date} - ${name} - ${title}`);
+      logDebug(`Computed filename: ${clean}`);
+      return clean;
+    };
+
+    const downloadBtn = createButton("QUICK DOWNLOAD", "quick-download-btn", "#2a7ae2", () => {
+      const filename = runFilenameLogic();
+      copyToClipboard(filename);
+      const href = extractDownloadHref();
+      const url = href ? new URL(href, window.location.origin).href : null;
+      if (url) {
+        window.open(url, "_blank");
+        showToast("Download opened in new tab");
+        logDebug("Opened: " + url);
+      } else {
+        showToast("No download URL found");
+        logDebug("No href available");
+      }
+    });
+
+    const copyBtn = createButton("COPY FILENAME", "copy-filename-btn", "#1abc9c", () => {
+      const filename = runFilenameLogic();
+      copyToClipboard(filename);
+    });
+
+    wrapper.appendChild(downloadBtn);
+    wrapper.appendChild(copyBtn);
+    document.body.appendChild(wrapper);
   }
 
   function init() {
     setupDebugPanel();
-    waitForElement('a[aria-label="Download Document"]', (downloadLink) => {
-      waitForElement('h5 span', (docTitleEl) => {
-        waitForElement('.pretty-name-span', (caseNameEl) => {
-          addDownloadButton(downloadLink, docTitleEl, caseNameEl);
-        });
-      });
+    waitForElement('a[aria-label="Download Document"]', () => {
+      addButtons();
     });
   }
 
+  // Launch on DOM ready
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     setTimeout(init, 500);
   } else {
