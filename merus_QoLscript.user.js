@@ -13,10 +13,10 @@
 
 (function() {
     'use strict';
+    console.log('🚀 MerusCase Super Suite loaded');
 
     /**
      * Check whether a detail panel (record entry) is open.
-     * We look for the right-panel button-list (Edit/Rename/Save controls).
      */
     function isDetailOpen() {
         const list = document.querySelector('#rightPanelTabs .button-list');
@@ -24,14 +24,12 @@
     }
 
     /**
-     * Observe changes under #rightPanelTabs and invoke callback when it changes.
+     * Observe changes under #rightPanelTabs and invoke callback.
      */
     function onDetailChange(callback) {
         const container = document.getElementById('rightPanelTabs');
         if (!container) return;
-        // Initial run
         callback();
-        // Observe for additions/removals
         const observer = new MutationObserver(() => callback());
         observer.observe(container, { childList: true, subtree: true, attributes: true });
     }
@@ -50,6 +48,7 @@
     /* ---------- MODULE: Renamer ---------- */
     function initRenamer() {
         if (!isDetailOpen()) return;
+        console.log('Initializing Renamer');
         (function() {
             'use strict';
         
@@ -445,6 +444,7 @@
     /* ---------- MODULE: QuickDownload ---------- */
     function initQuickDownload() {
         if (!isDetailOpen()) return;
+        console.log('Initializing QuickDownload');
         (function () {
           'use strict';
         
@@ -674,6 +674,7 @@
     /* ---------- MODULE: BooleanSearch ---------- */
     function initBooleanSearch() {
         if (!isDetailOpen()) return;
+        console.log('Initializing BooleanSearch');
         (function() {
             'use strict';
         
@@ -1497,6 +1498,7 @@
     /* ---------- MODULE: TabToSpaces ---------- */
     function initTabToSpaces() {
         if (!isDetailOpen()) return;
+        console.log('Initializing TabToSpaces');
         (function () {
           let enabled = true;
           let useNbsp = false;
@@ -1682,6 +1684,7 @@
     /* ---------- MODULE: AutoTagger ---------- */
     function initAutoTagger() {
         if (!isDetailOpen()) return;
+        console.log('Initializing AutoTagger');
         (function() {
             'use strict';
         
