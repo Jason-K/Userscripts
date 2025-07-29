@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
-// @namespace    http://tampermonkey.net/
 // @version      2.4
-// @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @author       Jason K.
+// @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
+// @namespace    http://tampermonkey.net/
 // @match        https://*.meruscase.com/*
 // @grant        none
 // @run-at       document-idle

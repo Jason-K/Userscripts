@@ -1,5 +1,6 @@
 // ==UserScript==
 // @name         MerusCase Quick PDF Download (Enhanced)
+// @author       Jason K
 // @namespace    Violentmonkey Scripts
 // @version      1.1
 // @description  Adds a QUICK DOWNLOAD button with smart renaming, UI feedback, and debug panel on MerusCase
@@ -11,8 +12,6 @@
 
 (function () {
   'use strict';
-
-  // --- Utility Functions ---
 
   function waitForElement(selector, callback, timeout = 10000) {
     const start = Date.now();
@@ -34,13 +33,12 @@
   }
 
   function extractCaseName() {
-    let candidate = document.querySelector('.pretty-name-span');
-    if (candidate && candidate.textContent.includes(',')) {
-      const [last, first] = candidate.textContent.replace("DECEASED", "").split(',').map(x => x.trim());
+    const el = document.querySelector('.pretty-name-span');
+    if (el && el.textContent.includes(',')) {
+      const [last, first] = el.textContent.replace("DECEASED", "").split(',').map(x => x.trim());
       return first && last ? `${first} ${last}` : 'Unknown Case';
     }
 
-    // Fallback: try case caption header
     const caption = [...document.querySelectorAll("span, h1, h2")].find(e => e.textContent.includes(" v. "));
     if (caption) {
       const [left] = caption.textContent.split(" v.");
@@ -52,15 +50,9 @@
   }
 
   function extractTitle() {
-    // Primary: title span inside h5
-    const el = document.querySelector('h5 span');
-    if (el && el.textContent.includes('.pdf')) return el.textContent.trim();
-
-    // Fallbacks:
-    const alt = [...document.querySelectorAll('span, h1, h2')]
-      .map(e => e.textContent.trim())
-      .find(t => t.toLowerCase().includes('.pdf'));
-    return alt || 'Untitled Document';
+    const spanCandidates = [...document.querySelectorAll('div.box-view h5 span')];
+    const titleEl = spanCandidates.find(el => el.textContent.toLowerCase().endsWith('.pdf'));
+    return titleEl ? titleEl.textContent.trim() : 'Untitled Document';
   }
 
   function extractDownloadHref() {
@@ -164,8 +156,6 @@
     document.body.appendChild(toggle);
   }
 
-  // --- Main UI & Actions ---
-
   function addButtons() {
     if (document.getElementById("quick-download-btn")) return;
 
@@ -238,7 +228,6 @@
     });
   }
 
-  // Launch on DOM ready
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     setTimeout(init, 500);
   } else {
