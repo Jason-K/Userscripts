@@ -4,6 +4,7 @@
 // @author       Jason K
 // @version      1.0
 // @description  Combines Smart Renamer, Quick PDF Download, Enhanced Boolean Search, Smart Tab-to-Spaces, and Auto-Tagger into one.
+// @match        *://meruscase.com/*
 // @match        *://*.meruscase.com/*
 // @grant        none
 // @run-at       document-idle
