@@ -14,7 +14,31 @@
 (function() {
     'use strict';
 
-    // DOM ready helper
+    /**
+     * Check whether a detail panel (record entry) is open.
+     * We look for the right-panel button-list (Edit/Rename/Save controls).
+     */
+    function isDetailOpen() {
+        const list = document.querySelector('#rightPanelTabs .button-list');
+        return list && list.offsetParent !== null;
+    }
+
+    /**
+     * Observe changes under #rightPanelTabs and invoke callback when it changes.
+     */
+    function onDetailChange(callback) {
+        const container = document.getElementById('rightPanelTabs');
+        if (!container) return;
+        // Initial run
+        callback();
+        // Observe for additions/removals
+        const observer = new MutationObserver(() => callback());
+        observer.observe(container, { childList: true, subtree: true, attributes: true });
+    }
+
+    /**
+     * Safe DOMContentLoaded.
+     */
     function onReady(fn) {
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', fn);
@@ -25,7 +49,7 @@
 
     /* ---------- MODULE: Renamer ---------- */
     function initRenamer() {
-        
+        if (!isDetailOpen()) return;
         (function() {
             'use strict';
         
@@ -420,7 +444,7 @@
 
     /* ---------- MODULE: QuickDownload ---------- */
     function initQuickDownload() {
-        
+        if (!isDetailOpen()) return;
         (function () {
           'use strict';
         
@@ -649,7 +673,7 @@
 
     /* ---------- MODULE: BooleanSearch ---------- */
     function initBooleanSearch() {
-        
+        if (!isDetailOpen()) return;
         (function() {
             'use strict';
         
@@ -1472,7 +1496,7 @@
 
     /* ---------- MODULE: TabToSpaces ---------- */
     function initTabToSpaces() {
-        
+        if (!isDetailOpen()) return;
         (function () {
           let enabled = true;
           let useNbsp = false;
@@ -1657,7 +1681,7 @@
 
     /* ---------- MODULE: AutoTagger ---------- */
     function initAutoTagger() {
-        
+        if (!isDetailOpen()) return;
         (function() {
             'use strict';
         
