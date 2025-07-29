@@ -9,10 +9,17 @@
 // @grant        none
 // ==/UserScript==
 
+// ==UserScript==
+// @name         MerusCase Quick PDF Download (Clipboard Fallback)
+// @namespace    Violentmonkey Scripts
+// @version      1.3
+// @description  Adds QUICK DOWNLOAD with filename copied to clipboard + fallback open + debug panel
+// @match        https://*.meruscase.com/*
+// @grant        none
+// ==/UserScript==
+
 (function () {
   'use strict';
-
-  // ---------- Utilities ----------
 
   function waitForElement(selector, callback, timeout = 10000) {
     const start = Date.now();
@@ -40,19 +47,41 @@
   function extractFormattedName(rawTitle) {
     try {
       const match = rawTitle.split(" v.")[0];
-      const [last, first, ...rest] = match.replace("DECEASED", "").split(",").map(s => s.trim()).filter(Boolean);
-      if (first && last) return `${first} ${last}`;
-    } catch (e) {
-      logDebug("Error extracting name: " + e.message);
+      const [last, first] = match.replace("DECEASED", "").split(",").map(s => s.trim()).filter(Boolean);
+      return first && last ? `${first} ${last}` : "Unknown Case";
+    } catch {
+      return "Unknown Case";
     }
-    return "Unknown Case";
   }
 
   function sanitizeFilename(str) {
     return str.replace(/[\/:*?"<>|]/g, "-");
   }
 
-  // ---------- Debug Panel ----------
+  function showToast(message, duration = 3000) {
+    const toast = document.createElement("div");
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 100px;
+      right: 20px;
+      background: #323232;
+      color: #fff;
+      padding: 10px 15px;
+      border-radius: 5px;
+      z-index: 10001;
+      box-shadow: 2px 2px 10px rgba(0,0,0,0.4);
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.4s;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = 1; }, 100);
+    setTimeout(() => {
+      toast.style.opacity = 0;
+      setTimeout(() => toast.remove(), 400);
+    }, duration);
+  }
 
   function setupDebugPanel() {
     const panel = document.createElement("div");
@@ -111,35 +140,6 @@
     console.log(message);
   }
 
-  // ---------- Feedback (Toast) ----------
-
-  function showToast(message, duration = 3000) {
-    const toast = document.createElement("div");
-    toast.textContent = message;
-    toast.style.cssText = `
-      position: fixed;
-      top: 100px;
-      right: 20px;
-      background: #323232;
-      color: #fff;
-      padding: 10px 15px;
-      border-radius: 5px;
-      z-index: 10001;
-      box-shadow: 2px 2px 10px rgba(0,0,0,0.4);
-      font-size: 14px;
-      opacity: 0;
-      transition: opacity 0.4s;
-    `;
-    document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = 1; }, 100);
-    setTimeout(() => {
-      toast.style.opacity = 0;
-      setTimeout(() => toast.remove(), 400);
-    }, duration);
-  }
-
-  // ---------- Main ----------
-
   function addDownloadButton(downloadLink, docTitleEl, caseNameEl) {
     if (document.getElementById("quick-download-btn")) return;
 
@@ -161,7 +161,7 @@
       box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
     `;
 
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const originalTitle = docTitleEl?.innerText?.trim();
       const caseTitle = caseNameEl?.getAttribute("title") || caseNameEl?.innerText;
       const downloadHref = downloadLink?.getAttribute("href");
@@ -180,17 +180,18 @@
       const formattedName = extractFormattedName(caseTitle);
       const newFilename = sanitizeFilename(`${datePrefix} - ${formattedName} - ${originalTitle}`);
 
-      logDebug(`New filename: ${newFilename}`);
+      try {
+        await navigator.clipboard.writeText(newFilename);
+        showToast("Filename copied to clipboard");
+        logDebug("Filename copied: " + newFilename);
+      } catch (e) {
+        showToast("Clipboard copy failed");
+        logDebug("Clipboard copy error: " + e.message);
+      }
 
       const fullUrl = new URL(downloadHref, window.location.origin).href;
-      const a = document.createElement("a");
-      a.href = fullUrl;
-      a.download = newFilename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-
-      showToast(`Downloading: ${newFilename}`);
+      window.open(fullUrl, '_blank');
+      showToast("Opened download in new tab");
     };
 
     document.body.appendChild(btn);
