@@ -9,15 +9,6 @@
 // @grant        none
 // ==/UserScript==
 
-// ==UserScript==
-// @name         MerusCase Quick PDF Download (Clipboard Fallback)
-// @namespace    Violentmonkey Scripts
-// @version      1.3
-// @description  Adds QUICK DOWNLOAD with filename copied to clipboard + fallback open + debug panel
-// @match        https://*.meruscase.com/*
-// @grant        none
-// ==/UserScript==
-
 (function () {
   'use strict';
 
