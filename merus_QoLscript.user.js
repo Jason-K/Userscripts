@@ -2071,14 +2071,26 @@
         })();
     }
 
-// Bootstrap
+    // Bootstrap on ready
     onReady(() => {
+        // Immediate check
         runModules();
-        // Observe panel content changes
+        // Poll occasionally in case panel appears later
+        let attempts = 0;
+        const poller = setInterval(() => {
+            attempts++;
+            if (isDetailOpen()) {
+                runModules();
+                clearInterval(poller);
+            }
+            if (attempts > 20) clearInterval(poller);
+        }, 500);
+        // Observe panel changes
         const panel = document.getElementById('rightPanelTabs');
         if (panel) {
             new MutationObserver(runModules).observe(panel, { childList: true, subtree: true });
         }
+        // SPA navigation
         hookNavigation(runModules);
     });
 })();
