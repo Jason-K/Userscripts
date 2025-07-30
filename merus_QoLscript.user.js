@@ -17,14 +17,17 @@
     console.log('🚀 MerusCase Super Suite loaded');
 
     /**
-     * Determine if current view is a record detail (activities/viewOne).
+     * True when on a detail page and panel exists.
      */
     function isDetailOpen() {
-        return /\/activities\/viewOne\//.test(window.location.pathname);
+        const pathMatch = /\/activities\/viewOne\/[0-9]+/.test(window.location.pathname);
+        const panelExists = Boolean(document.querySelector('#rightPanelTabs .button-list'));
+        console.log('MerusCase: isDetailOpen?', pathMatch, panelExists);
+        return pathMatch && panelExists;
     }
 
     /**
-     * Initialize modules when detail is active.
+     * Run module initializers if detail open.
      */
     function runModules() {
         if (!isDetailOpen()) return;
@@ -37,6 +40,18 @@
     }
 
     /**
+     * Hook history changes for SPA.
+     */
+    function hookNavigation(onNav) {
+        const origPush = history.pushState;
+        history.pushState = function() {
+            origPush.apply(this, arguments);
+            onNav();
+        };
+        window.addEventListener('popstate', onNav);
+    }
+
+    /**
      * Safe DOMContentLoaded.
      */
     function onReady(fn) {
@@ -45,18 +60,6 @@
         } else {
             fn();
         }
-    }
-
-    /**
-     * Hook history.pushState & popstate to catch SPA navigation.
-     */
-    function hookNavigation(onNavigate) {
-        const origPush = history.pushState;
-        history.pushState = function() {
-            origPush.apply(this, arguments);
-            onNavigate();
-        };
-        window.addEventListener('popstate', onNavigate);
     }
 
     /* ---------- MODULE: Renamer ---------- */
@@ -2068,9 +2071,14 @@
         })();
     }
 
-    // Bootstrap
+// Bootstrap
     onReady(() => {
         runModules();
+        // Observe panel content changes
+        const panel = document.getElementById('rightPanelTabs');
+        if (panel) {
+            new MutationObserver(runModules).observe(panel, { childList: true, subtree: true });
+        }
         hookNavigation(runModules);
     });
 })();
