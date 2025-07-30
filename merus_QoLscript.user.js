@@ -17,22 +17,23 @@
     console.log('🚀 MerusCase Super Suite loaded');
 
     /**
-     * Check whether a detail panel (record entry) is open.
+     * Determine if current view is a record detail (activities/viewOne).
      */
     function isDetailOpen() {
-        const list = document.querySelector('#rightPanelTabs .button-list');
-        return list && list.offsetParent !== null;
+        return /\/activities\/viewOne\//.test(window.location.pathname);
     }
 
     /**
-     * Observe changes under #rightPanelTabs and invoke callback.
+     * Initialize modules when detail is active.
      */
-    function onDetailChange(callback) {
-        const container = document.getElementById('rightPanelTabs');
-        if (!container) return;
-        callback();
-        const observer = new MutationObserver(() => callback());
-        observer.observe(container, { childList: true, subtree: true, attributes: true });
+    function runModules() {
+        if (!isDetailOpen()) return;
+        console.log('MerusCase: detail detected, initializing modules');
+        initRenamer();
+        initQuickDownload();
+        initBooleanSearch();
+        initTabToSpaces();
+        initAutoTagger();
     }
 
     /**
@@ -44,6 +45,18 @@
         } else {
             fn();
         }
+    }
+
+    /**
+     * Hook history.pushState & popstate to catch SPA navigation.
+     */
+    function hookNavigation(onNavigate) {
+        const origPush = history.pushState;
+        history.pushState = function() {
+            origPush.apply(this, arguments);
+            onNavigate();
+        };
+        window.addEventListener('popstate', onNavigate);
     }
 
     /* ---------- MODULE: Renamer ---------- */
@@ -2055,11 +2068,9 @@
         })();
     }
 
-    // Initialize all modules when DOM is ready
-    onReady(initRenamer);
-    onReady(initQuickDownload);
-    onReady(initBooleanSearch);
-    onReady(initTabToSpaces);
-    onReady(initAutoTagger);
-
+    // Bootstrap
+    onReady(() => {
+        runModules();
+        hookNavigation(runModules);
+    });
 })();
