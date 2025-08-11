@@ -292,7 +292,7 @@
         undoButton = document.createElement('button');
         undoButton.textContent = 'Undo Rename';
         undoButton.style.position = 'fixed';
-        undoButton.style.bottom = '10px';
+        undoButton.style.top = '10px'; // Changed from bottom
         undoButton.style.right = '140px'; // Position to the left of main button
         undoButton.style.zIndex = '9999';
         undoButton.style.backgroundColor = '#ff6b6b';
@@ -337,7 +337,7 @@
         button.id = 'smart-rename-button'; // Add an ID for easier selection
         button.textContent = 'Smart Rename';
         button.style.position = 'fixed';
-        button.style.bottom = '10px';
+        button.style.top = '10px'; // Changed from bottom
         button.style.right = '10px';
         button.style.zIndex = '9999';
         button.style.backgroundColor = '#4CAF50';
