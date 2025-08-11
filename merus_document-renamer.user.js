@@ -29,7 +29,24 @@
         [/\breport\b/i, "medical"]
     ];
     const UR_SUBTYPE_RE = /\b(approval|denial|mod)\b/i;
-    const DATE_RE = /(\d{1,2})-(\d{1,2})-(\d{2,4})(?:_\d+)?(?:[^a-zA-Z0-9]|$)/;
+
+    // An array of regular expressions to match different date formats.
+    // Each object includes the regex and the positions of year, month, and day in the match.
+    const DATE_REGEXES = [
+        // Format: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD, etc.
+        { regex: /\b(?<year>\d{4})([./\s_-])(?<month>\d{1,2})\2(?<day>\d{1,2})\b/, groups: { year: 'year', month: 'month', day: 'day' } },
+        // Format: MM-DD-YYYY, M-D-YYYY, etc.
+        { regex: /\b(?<month>\d{1,2})([./\s_-])(?<day>\d{1,2})\2(?<year>\d{4})\b/, groups: { year: 'year', month: 'month', day: 'day' } },
+        // Format: MM-DD-YY, M-D-YY, etc.
+        { regex: /\b(?<month>\d{1,2})([./\s_-])(?<day>\d{1,2})\2(?<year>\d{2})\b/, groups: { year: 'year', month: 'month', day: 'day' } },
+        // Format: YYYYMMDD (no separator)
+        { regex: /\b(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})\b/, groups: { year: 'year', month: 'month', day: 'day' } },
+        // Format: MMDDYYYY (no separator)
+        { regex: /\b(?<month>\d{2})(?<day>\d{2})(?<year>\d{4})\b/, groups: { year: 'year', month: 'month', day: 'day' } },
+        // Format: MMDDYY (no separator)
+        { regex: /\b(?<month>\d{2})(?<day>\d{2})(?<year>\d{2})\b/, groups: { year: 'year', month: 'month', day: 'day' } }
+    ];
+
     const DR_RE_1 = /\b(?:dr\.?|doctor)\s+([\w\-.', ]+?)([A-Z][a-zA-Z'-]+)\b/i;
     const DR_RE_2 = /([\w\-.', ]+?)\s+([A-Z][a-zA-Z'-]+)\s+(?:m\.?d\.?|md|d\.?o\.?|ph\.?d\.?)(?=\b|[^A-Za-z])/i;
     // Business suffixes to remove and trigger title case (llp, inc, pc, corp, co, ltd, llc, etc.)
@@ -77,30 +94,30 @@
     }
 
     function extractDate(stem) {
-        const m = stem.match(DATE_RE);
-        if (!m) {
-            throw new Error("no date found");
+        for (const { regex, groups } of DATE_REGEXES) {
+            const m = stem.match(regex);
+            if (m && m.groups) {
+                let year = parseInt(m.groups[groups.year]);
+                let month = parseInt(m.groups[groups.month]);
+                let day = parseInt(m.groups[groups.day]);
+
+                if (year < 100) {
+                    year += (year < 50) ? 2000 : 1900;
+                }
+
+                // Basic date validation
+                if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                    const dateObj = new Date(year, month - 1, day);
+                    // Check if the date is valid (e.g., not Feb 30)
+                    if (dateObj.getFullYear() === year && dateObj.getMonth() === month - 1 && dateObj.getDate() === day) {
+                        const newDate = dateObj.toISOString().slice(0, 10).replace(/-/g, '.');
+                        const beforeDate = stem.substring(0, m.index).trim().replace(/[ _-]+$/, '');
+                        return [beforeDate, newDate];
+                    }
+                }
+            }
         }
-        let month = parseInt(m[1]);
-        let day = parseInt(m[2]);
-        let year = parseInt(m[3]);
-        
-        if (year < 100) {
-            year += (year < 50) ? 2000 : 1900;
-        }
-        
-        // Validate the date
-        if (month < 1 || month > 12 || day < 1 || day > 31) {
-            throw new Error("invalid date values");
-        }
-        
-        const dateObj = new Date(year, month - 1, day);
-        const newDate = dateObj.toISOString().slice(0, 10).replace(/-/g, '.');
-        
-        // Get the text before the date match
-        const beforeDate = stem.substring(0, m.index).trim().replace(/[ _-]+$/, '');
-        
-        return [beforeDate, newDate];
+        throw new Error("no date found");
     }
 
     function normalizeDoctor(text) {
