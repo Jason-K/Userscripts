@@ -334,6 +334,7 @@
 
     function createButton() {
         const button = document.createElement('button');
+        button.id = 'smart-rename-button'; // Add an ID for easier selection
         button.textContent = 'Smart Rename';
         button.style.position = 'fixed';
         button.style.bottom = '10px';
@@ -346,6 +347,7 @@
         button.style.borderRadius = '5px';
         button.style.cursor = 'pointer';
         button.style.fontSize = '12px';
+        button.style.display = 'none'; // Initially hide the button
 
         button.addEventListener('click', function() {
             // First, try to click the MerusCase rename button if it's visible
@@ -409,6 +411,30 @@
         });
 
         document.body.appendChild(button);
+        observeRenameButton(); // Start observing for the rename button
+    }
+
+    function observeRenameButton() {
+        const smartRenameButton = document.getElementById('smart-rename-button');
+
+        const toggleSmartRenameButton = () => {
+            const renameButton = document.querySelector('button.rename-button');
+            // Check if the button exists, is not explicitly hidden by a class, and is actually visible on the page.
+            const isVisible = renameButton && !renameButton.classList.contains('hidden') && renameButton.offsetParent !== null;
+            smartRenameButton.style.display = isVisible ? 'block' : 'none';
+        };
+
+        const observer = new MutationObserver(toggleSmartRenameButton);
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style']
+        });
+
+        // Perform an initial check in case the button is already on the page
+        toggleSmartRenameButton();
     }
 
     // Wait for page to load before creating button
