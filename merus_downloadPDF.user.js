@@ -57,60 +57,38 @@
     return 'Unknown Case';
   }
 
-  function formatProfessionalNames(text) {
-    const replacements = [
+  function processTitle(text) {
+    const acronyms = ['QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
+    const professionalTitles = [
       { titles: ['MD', 'M.D.', 'DO', 'D.O.', 'PHD', 'Ph.D.', 'DC', 'D.C.'], replacement: 'Dr.' },
       { titles: ['RN'], replacement: 'Nurse' },
       { titles: ['PA', 'PA-C'], replacement: 'PA' }
     ];
 
-    let formattedText = text;
+    // Convert the entire string to lowercase to start
+    let processedText = text.toLowerCase();
 
-    for (const group of replacements) {
-      const titlesRegex = group.titles.map(t => t.replace(/\./g, '\\.')).join('|');
-      // This regex looks for a name (First M. Last) followed by a title.
-      // It captures the first name and last name. It is now fully case-insensitive.
-      const nameRegex = new RegExp(`([a-z]['-a-z]+(?:\\s[a-z]\\.?)?)\\s([a-z]['-a-z]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'gi');
+    // Restore acronyms to uppercase
+    for (const acronym of acronyms) {
+      const regex = new RegExp(`\\b${acronym.toLowerCase()}\\b`, 'g');
+      processedText = processedText.replace(regex, acronym);
+    }
+
+    // Find and format professional names
+    for (const group of professionalTitles) {
+      const titlesRegex = group.titles.map(t => t.toLowerCase().replace(/\./g, '\\.')).join('|');
+      const nameRegex = new RegExp(`([a-z]['-a-z]+(?:\\s[a-z]\\.?)?)\\s([a-z]['-a-z]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'g');
       
-      formattedText = formattedText.replace(nameRegex, (match, firstName, lastName) => {
-        // Capitalize the first letter of the last name for cleaner output
+      processedText = processedText.replace(nameRegex, (match, firstName, lastName) => {
         const capitalizedLastName = lastName.charAt(0).toUpperCase() + lastName.slice(1);
         logDebug(`Replaced "${firstName} ${lastName}" with "${group.replacement} ${capitalizedLastName}"`);
         return `${group.replacement} ${capitalizedLastName}`;
       });
     }
 
-    return formattedText;
+    return processedText;
   }
 
-  function applySelectiveLowercase(text) {
-    const acronyms = ['QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
-    const titles = ['Dr.', 'Nurse', 'PA'];
-
-    const preservedWords = [...acronyms, ...titles];
-    const placeholders = new Map();
-    let placeholderIndex = 0;
-
-    // Create a regex to find all acronyms and titles, case-insensitively
-    const preservedRegex = new RegExp(`\\b(${preservedWords.join('|').replace(/\./g, '\\.')})\\b`, 'gi');
-
-    // First, replace all preserved words with placeholders
-    let tempText = text.replace(preservedRegex, (match) => {
-      const placeholder = `__placeholder${placeholderIndex++}__`;
-      placeholders.set(placeholder, match);
-      return placeholder;
-    });
-
-    // Now, convert the entire string to lowercase
-    tempText = tempText.toLowerCase();
-
-    // Finally, restore the preserved words from placeholders
-    placeholders.forEach((originalValue, placeholder) => {
-      tempText = tempText.replace(placeholder, originalValue);
-    });
-
-    return tempText;
-  }
 
   function extractTitle() {
     const spanCandidates = [...document.querySelectorAll('div.box-view h5 span')];
@@ -127,11 +105,8 @@
     title = title.replace(/\b\d{2}-\d{2}-\d{4}\b/g, '').trim();
     title = title.replace(/\b\d{4}-\d{2}-\d{2}\b/g, '').trim();
 
-    // Apply selective lowercase first
-    title = applySelectiveLowercase(title);
-
-    // Now, format professional names
-    title = formatProfessionalNames(title);
+    // Process the title using the new unified function
+    title = processTitle(title);
     
     // Clean up extra spaces and punctuation
     title = title.replace(/\s+/g, ' ').replace(/[.,\s]+$/, '').trim();
