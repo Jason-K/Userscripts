@@ -65,11 +65,11 @@
 
     // --- Perform all replacements on the lowercased string ---
 
-    // 1. Replace the full, specific name first. This is the highest priority.
-    title = title.replace(/william r\. campbell, d\.o\., qme/g, 'dr. campbell QME');
+    // 1. Replace the full, specific name first, with correct capitalization.
+    title = title.replace(/william r\. campbell, d\.o\., qme/g, 'Dr. Campbell QME');
     
     // 2. Replace any other known long names or phrases
-    // e.g., title = title.replace(/another long name, m\.d\./g, 'dr. othername');
+    // e.g., title = title.replace(/another long name, m\.d\./g, 'Dr. Othername');
 
     // 3. Replace general terms like "report"
     title = title.replace(/\breport\b/g, 'report');
@@ -83,10 +83,8 @@
     // --- Final Cleanup ---
     // Remove any trailing punctuation that might be left over
     title = title.replace(/[.,\s]+$/, '').trim();
-    // Capitalize the first letter of the resulting title for consistency.
-    if (title.length > 0) {
-      title = title.charAt(0).toUpperCase() + title.slice(1);
-    }
+    // Remove extra spaces
+    title = title.replace(/\s+/g, ' ');
     
     return title;
   }
