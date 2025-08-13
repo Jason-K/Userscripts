@@ -69,12 +69,14 @@
     for (const group of replacements) {
       const titlesRegex = group.titles.map(t => t.replace(/\./g, '\\.')).join('|');
       // This regex looks for a name (First M. Last) followed by a title.
-      // It captures the first name and last name. It is case-insensitive.
-      const nameRegex = new RegExp(`([A-Z][a-z'-]+(?:\\s[A-Z]\\.?)?)\\s([A-Z][a-z'-]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'gi');
+      // It captures the first name and last name. It is now fully case-insensitive.
+      const nameRegex = new RegExp(`([a-z]['-a-z]+(?:\\s[a-z]\\.?)?)\\s([a-z]['-a-z]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'gi');
       
       formattedText = formattedText.replace(nameRegex, (match, firstName, lastName) => {
-        logDebug(`Replaced "${firstName} ${lastName}" with "${group.replacement} ${lastName}"`);
-        return `${group.replacement} ${lastName}`;
+        // Capitalize the first letter of the last name for cleaner output
+        const capitalizedLastName = lastName.charAt(0).toUpperCase() + lastName.slice(1);
+        logDebug(`Replaced "${firstName} ${lastName}" with "${group.replacement} ${capitalizedLastName}"`);
+        return `${group.replacement} ${capitalizedLastName}`;
       });
     }
 
