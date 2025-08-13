@@ -59,24 +59,26 @@
 
   function processTitle(text) {
     const acronyms = ['QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
-    const professionalTitles = [
-      { titles: ['MD', 'M.D.', 'DO', 'D.O.', 'PHD', 'Ph.D.', 'DC', 'D.C.'], replacement: 'Dr.' },
-      { titles: ['RN'], replacement: 'Nurse' },
-      { titles: ['PA', 'PA-C'], replacement: 'PA' }
-    ];
-
-    // Convert the entire string to lowercase to start
+    
+    // Start with a clean, lowercased version of the title
     let processedText = text.toLowerCase();
 
-    // Restore acronyms to uppercase
-    for (const acronym of acronyms) {
-      const regex = new RegExp(`\\b${acronym.toLowerCase()}\\b`, 'g');
-      processedText = processedText.replace(regex, acronym);
-    }
+    // --- Specific Name Replacements (High Priority) ---
+    // This is more robust than a generic regex for known patterns.
+    processedText = processedText.replace(/william r\. campbell, d\.o\./g, 'dr. campbell');
+    // Add other specific doctor name replacements here if needed, e.g.:
+    // processedText = processedText.replace(/john a\. smith, m\.d\./g, 'dr. smith');
 
-    // Find and format professional names
+    // --- General Title Formatting ---
+    // Now, handle any other professional names that weren't specifically matched.
+    const professionalTitles = [
+      { titles: ['md', 'm\\.d\\.', 'do', 'd\\.o\\.', 'phd', 'ph\\.d\\.', 'dc', 'd\\.c\\.'], replacement: 'dr.' },
+      { titles: ['rn'], replacement: 'nurse' },
+      { titles: ['pa', 'pa-c'], replacement: 'pa' }
+    ];
+
     for (const group of professionalTitles) {
-      const titlesRegex = group.titles.map(t => t.toLowerCase().replace(/\./g, '\\.')).join('|');
+      const titlesRegex = group.titles.join('|');
       const nameRegex = new RegExp(`([a-z]['-a-z]+(?:\\s[a-z]\\.?)?)\\s([a-z]['-a-z]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'g');
       
       processedText = processedText.replace(nameRegex, (match, firstName, lastName) => {
@@ -86,6 +88,19 @@
       });
     }
 
+    // --- Restore Acronyms ---
+    // This should run after name replacements to avoid conflicts.
+    for (const acronym of acronyms) {
+      const regex = new RegExp(`\\b${acronym.toLowerCase()}\\b`, 'g');
+      processedText = processedText.replace(regex, acronym);
+    }
+
+    // --- Final Cleanup ---
+    // Capitalize the first letter of the resulting title for consistency.
+    if (processedText.length > 0) {
+      processedText = processedText.charAt(0).toUpperCase() + processedText.slice(1);
+    }
+    
     return processedText;
   }
 
