@@ -28,8 +28,17 @@
   }
 
   function extractDateFromText(text) {
-    const match = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-    return match ? `${match[1]}.${match[2]}.${match[3]}` : 'Undated';
+    // Try MM-DD-YYYY first
+    let match = text.match(/\b(\d{2})-(\d{2})-(\d{4})\b/);
+    if (match) {
+      return `${match[3]}.${match[1]}.${match[2]}`;
+    }
+    // Fallback to YYYY-MM-DD
+    match = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    if (match) {
+      return `${match[1]}.${match[2]}.${match[3]}`;
+    }
+    return 'Undated';
   }
 
   function extractCaseName() {
@@ -49,10 +58,83 @@
     return 'Unknown Case';
   }
 
+  function formatProfessionalNames(text) {
+    const replacements = [
+      { titles: ['MD', 'M.D.', 'DO', 'D.O.', 'PHD', 'Ph.D.', 'DC', 'D.C.'], replacement: 'Dr.' },
+      { titles: ['RN'], replacement: 'Nurse' },
+      { titles: ['PA', 'PA-C'], replacement: 'PA' }
+    ];
+
+    let formattedText = text;
+
+    for (const group of replacements) {
+      const titlesRegex = group.titles.map(t => t.replace(/\./g, '\\.')).join('|');
+      // This regex looks for a name (First M. Last) followed by a title.
+      // It captures the first name and last name.
+      const nameRegex = new RegExp(`([A-Z][a-z'-]+(?:\\s[A-Z]\\.?)?)\\s([A-Z][a-z'-]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'gi');
+      
+      formattedText = formattedText.replace(nameRegex, (match, firstName, lastName) => {
+        logDebug(`Replaced "${firstName} ${lastName}" with "${group.replacement} ${lastName}"`);
+        return `${group.replacement} ${lastName}`;
+      });
+    }
+
+    return formattedText;
+  }
+
+  function applySelectiveLowercase(text) {
+    const acronyms = ['QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
+    const titles = ['Dr.', 'Nurse', 'PA'];
+
+    // Create a regex to find all acronyms and titles
+    const preservedWords = [...acronyms, ...titles];
+    const preservedRegex = new RegExp(`\\b(${preservedWords.join('|')})\\b`, 'gi');
+
+    // Temporarily replace preserved words with a placeholder
+    const placeholders = {};
+    let placeholderIndex = 0;
+    let tempText = text.replace(preservedRegex, (match) => {
+      const placeholder = `__PLACEHOLDER_${placeholderIndex++}__`;
+      placeholders[placeholder] = match;
+      return placeholder;
+    });
+
+    // Convert the rest of the string to lowercase
+    tempText = tempText.toLowerCase();
+
+    // Restore the preserved words from placeholders
+    for (const placeholder in placeholders) {
+      tempText = tempText.replace(placeholder, placeholders[placeholder]);
+    }
+
+    return tempText;
+  }
+
   function extractTitle() {
     const spanCandidates = [...document.querySelectorAll('div.box-view h5 span')];
     const titleEl = spanCandidates.find(el => el.textContent.toLowerCase().endsWith('.pdf'));
-    return titleEl ? titleEl.textContent.trim() : 'Untitled Document';
+    if (!titleEl) {
+      return 'Untitled Document';
+    }
+
+    let title = titleEl.textContent.trim();
+    // Remove file extension
+    title = title.replace(/\.pdf$/i, '');
+
+    // Remove date
+    title = title.replace(/\b\d{2}-\d{2}-\d{4}\b/g, '').trim();
+    title = title.replace(/\b\d{4}-\d{2}-\d{2}\b/g, '').trim();
+
+    // Specific string replacements
+    title = formatProfessionalNames(title);
+    
+    // Apply selective lowercase
+    title = applySelectiveLowercase(title);
+
+    // Clean up extra spaces and punctuation
+    title = title.replace(/\s+/g, ' ').replace(/[.,\s]+$/, '').trim();
+
+    return title;
   }
 
   function extractDownloadHref() {
@@ -188,10 +270,16 @@
     };
 
     const runFilenameLogic = () => {
-      const title = extractTitle();
-      const date = extractDateFromText(title);
+      const titleEl = document.querySelector('div.box-view h5 span');
+      if (!titleEl) {
+        logDebug("Could not find title element for filename logic.");
+        return "Untitled Document.pdf";
+      }
+      const originalTitle = titleEl.textContent;
+      const processedTitle = extractTitle();
+      const date = extractDateFromText(originalTitle);
       const name = extractCaseName();
-      const clean = sanitizeFilename(`${date} - ${name} - ${title}`);
+      const clean = sanitizeFilename(`${date} - ${name} - ${processedTitle}.pdf`);
       logDebug(`Computed filename: ${clean}`);
       return clean;
     };
