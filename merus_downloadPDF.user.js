@@ -6,7 +6,6 @@
 // @description  Adds a QUICK DOWNLOAD button with smart renaming, UI feedback, and debug panel on MerusCase
 // @match        https://*.meruscase.com/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_downloadPDF.user.js
-// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_downloadPDF.user.js
 // @grant        none
 // ==/UserScript==
 
@@ -70,7 +69,7 @@
     for (const group of replacements) {
       const titlesRegex = group.titles.map(t => t.replace(/\./g, '\\.')).join('|');
       // This regex looks for a name (First M. Last) followed by a title.
-      // It captures the first name and last name.
+      // It captures the first name and last name. It is case-insensitive.
       const nameRegex = new RegExp(`([A-Z][a-z'-]+(?:\\s[A-Z]\\.?)?)\\s([A-Z][a-z'-]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'gi');
       
       formattedText = formattedText.replace(nameRegex, (match, firstName, lastName) => {
@@ -86,26 +85,27 @@
     const acronyms = ['QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
     const titles = ['Dr.', 'Nurse', 'PA'];
 
-    // Create a regex to find all acronyms and titles
     const preservedWords = [...acronyms, ...titles];
-    const preservedRegex = new RegExp(`\\b(${preservedWords.join('|')})\\b`, 'gi');
-
-    // Temporarily replace preserved words with a placeholder
-    const placeholders = {};
+    const placeholders = new Map();
     let placeholderIndex = 0;
+
+    // Create a regex to find all acronyms and titles, case-insensitively
+    const preservedRegex = new RegExp(`\\b(${preservedWords.join('|').replace(/\./g, '\\.')})\\b`, 'gi');
+
+    // First, replace all preserved words with placeholders
     let tempText = text.replace(preservedRegex, (match) => {
-      const placeholder = `__PLACEHOLDER_${placeholderIndex++}__`;
-      placeholders[placeholder] = match;
+      const placeholder = `__placeholder${placeholderIndex++}__`;
+      placeholders.set(placeholder, match);
       return placeholder;
     });
 
-    // Convert the rest of the string to lowercase
+    // Now, convert the entire string to lowercase
     tempText = tempText.toLowerCase();
 
-    // Restore the preserved words from placeholders
-    for (const placeholder in placeholders) {
-      tempText = tempText.replace(placeholder, placeholders[placeholder]);
-    }
+    // Finally, restore the preserved words from placeholders
+    placeholders.forEach((originalValue, placeholder) => {
+      tempText = tempText.replace(placeholder, originalValue);
+    });
 
     return tempText;
   }
@@ -125,12 +125,12 @@
     title = title.replace(/\b\d{2}-\d{2}-\d{4}\b/g, '').trim();
     title = title.replace(/\b\d{4}-\d{2}-\d{2}\b/g, '').trim();
 
-    // Specific string replacements
-    title = formatProfessionalNames(title);
-    
-    // Apply selective lowercase
+    // Apply selective lowercase first
     title = applySelectiveLowercase(title);
 
+    // Now, format professional names
+    title = formatProfessionalNames(title);
+    
     // Clean up extra spaces and punctuation
     title = title.replace(/\s+/g, ' ').replace(/[.,\s]+$/, '').trim();
 
@@ -279,7 +279,8 @@
       const processedTitle = extractTitle();
       const date = extractDateFromText(originalTitle);
       const name = extractCaseName();
-      const clean = sanitizeFilename(`${date} - ${name} - ${processedTitle}.pdf`);
+      // Ensure the final filename has the .pdf extension added once.
+      const clean = sanitizeFilename(`${date} - ${name} - ${processedTitle}`) + '.pdf';
       logDebug(`Computed filename: ${clean}`);
       return clean;
     };
