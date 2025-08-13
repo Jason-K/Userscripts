@@ -59,49 +59,36 @@
 
   function processTitle(text) {
     const acronyms = ['QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
-    
+
     // Start with a clean, lowercased version of the title
-    let processedText = text.toLowerCase();
+    let title = text.toLowerCase();
 
-    // --- Specific Name Replacements (High Priority) ---
-    // This is more robust than a generic regex for known patterns.
-    processedText = processedText.replace(/william r\. campbell, d\.o\./g, 'dr. campbell');
-    // Add other specific doctor name replacements here if needed, e.g.:
-    // processedText = processedText.replace(/john a\. smith, m\.d\./g, 'dr. smith');
+    // --- Perform all replacements on the lowercased string ---
 
-    // --- General Title Formatting ---
-    // Now, handle any other professional names that weren't specifically matched.
-    const professionalTitles = [
-      { titles: ['md', 'm\\.d\\.', 'do', 'd\\.o\\.', 'phd', 'ph\\.d\\.', 'dc', 'd\\.c\\.'], replacement: 'dr.' },
-      { titles: ['rn'], replacement: 'nurse' },
-      { titles: ['pa', 'pa-c'], replacement: 'pa' }
-    ];
+    // 1. Replace the full, specific name first. This is the highest priority.
+    title = title.replace(/william r\. campbell, d\.o\., qme/g, 'dr. campbell QME');
+    
+    // 2. Replace any other known long names or phrases
+    // e.g., title = title.replace(/another long name, m\.d\./g, 'dr. othername');
 
-    for (const group of professionalTitles) {
-      const titlesRegex = group.titles.join('|');
-      const nameRegex = new RegExp(`([a-z]['-a-z]+(?:\\s[a-z]\\.?)?)\\s([a-z]['-a-z]+)(?:,)?\\s(?:${titlesRegex})\\b`, 'g');
-      
-      processedText = processedText.replace(nameRegex, (match, firstName, lastName) => {
-        const capitalizedLastName = lastName.charAt(0).toUpperCase() + lastName.slice(1);
-        logDebug(`Replaced "${firstName} ${lastName}" with "${group.replacement} ${capitalizedLastName}"`);
-        return `${group.replacement} ${capitalizedLastName}`;
-      });
-    }
+    // 3. Replace general terms like "report"
+    title = title.replace(/\breport\b/g, 'report');
 
-    // --- Restore Acronyms ---
-    // This should run after name replacements to avoid conflicts.
+    // 4. Restore all acronyms to their uppercase form
     for (const acronym of acronyms) {
       const regex = new RegExp(`\\b${acronym.toLowerCase()}\\b`, 'g');
-      processedText = processedText.replace(regex, acronym);
+      title = title.replace(regex, acronym);
     }
 
     // --- Final Cleanup ---
+    // Remove any trailing punctuation that might be left over
+    title = title.replace(/[.,\s]+$/, '').trim();
     // Capitalize the first letter of the resulting title for consistency.
-    if (processedText.length > 0) {
-      processedText = processedText.charAt(0).toUpperCase() + processedText.slice(1);
+    if (title.length > 0) {
+      title = title.charAt(0).toUpperCase() + title.slice(1);
     }
     
-    return processedText;
+    return title;
   }
 
 
@@ -124,7 +111,7 @@
     title = processTitle(title);
     
     // Clean up extra spaces and punctuation
-    title = title.replace(/\s+/g, ' ').replace(/[.,\s]+$/, '').trim();
+    title = title.replace(/\s+/g, ' ').trim();
 
     return title;
   }
