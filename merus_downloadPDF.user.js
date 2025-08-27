@@ -58,7 +58,7 @@
   }
 
   function processTitle(text) {
-    const acronyms = ['QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
+    const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA','QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'P&S', 'TTD', 'PPD', 'TD', 'PD', 'WCJ', 'WCAB'];
 
     // Start with a clean, lowercased version of the title
     let title = text.toLowerCase();
