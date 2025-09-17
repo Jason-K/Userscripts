@@ -27,16 +27,29 @@
   }
 
   function extractDateFromText(text) {
-    // Try MM-DD-YYYY first
-    let match = text.match(/\b(\d{2})-(\d{2})-(\d{4})\b/);
+    let match;
+
+    // Regex for YYYY-MM-DD, YYYY.MM.DD, etc.
+    match = text.match(/\b(\d{4})([\.\-\/\s])(\d{1,2})\2(\d{1,2})\b/);
     if (match) {
-      return `${match[3]}.${match[1]}.${match[2]}`;
+        const year = match[1];
+        const month = match[3].padStart(2, '0');
+        const day = match[4].padStart(2, '0');
+        return `${year}.${month}.${day}`;
     }
-    // Fallback to YYYY-MM-DD
-    match = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+
+    // Regex for M/D/YY, M/D/YYYY, etc. with various dividers
+    match = text.match(/\b(\d{1,2})([\.\-\/\s])(\d{1,2})\2(\d{2,4})\b/);
     if (match) {
-      return `${match[1]}.${match[2]}.${match[3]}`;
+        let year = match[4];
+        if (year.length === 2) {
+            year = '20' + year;
+        }
+        const month = match[1].padStart(2, '0');
+        const day = match[3].padStart(2, '0');
+        return `${year}.${month}.${day}`;
     }
+
     return 'Undated';
   }
 
@@ -101,9 +114,9 @@
     // Remove file extension
     title = title.replace(/\.pdf$/i, '');
 
-    // Remove date
-    title = title.replace(/\b\d{2}-\d{2}-\d{4}\b/g, '').trim();
-    title = title.replace(/\b\d{4}-\d{2}-\d{2}\b/g, '').trim();
+    // Remove date patterns
+    title = title.replace(/\b\d{4}[\.\-\/\s]\d{1,2}[\.\-\/\s]\d{1,2}\b/g, '').trim(); // YYYY-M-D
+    title = title.replace(/\b\d{1,2}[\.\-\/\s]\d{1,2}[\.\-\/\s]\d{2,4}\b/g, '').trim(); // M-D-YY(YY)
 
     // Process the title using the new unified function
     title = processTitle(title);
@@ -215,82 +228,46 @@
     document.body.appendChild(toggle);
   }
 
-  function addButtons() {
-    if (document.getElementById("quick-download-btn")) return;
+  function runFilenameLogic() {
+    const titleEl = document.querySelector('div.box-view h5 span');
+    if (!titleEl) {
+      logDebug("Could not find title element for filename logic.");
+      return "Untitled Document.pdf";
+    }
+    const originalTitle = titleEl.textContent;
+    const processedTitle = extractTitle();
+    const date = extractDateFromText(originalTitle);
+    const name = extractCaseName();
+    // Ensure the final filename has the .pdf extension added once.
+    const clean = sanitizeFilename(`${date} - ${name} - ${processedTitle}`) + '.pdf';
+    logDebug(`Computed filename: ${clean}`);
+    return clean;
+  }
 
-    const wrapper = document.createElement("div");
-    wrapper.style.cssText = `
-      position: fixed;
-      top: 80px;
-      right: 20px;
-      z-index: 10000;
-      display: flex;
-      gap: 8px;
-    `;
+  function handleDownloadClick(event) {
+    event.preventDefault();
+    const downloadBtn = event.currentTarget;
 
-    const createButton = (label, id, color, handler) => {
-      const btn = document.createElement("button");
-      btn.innerText = label;
-      btn.id = id;
-      btn.style.cssText = `
-        background: ${color};
-        color: white;
-        border: none;
-        padding: 10px 15px;
-        font-size: 14px;
-        border-radius: 5px;
-        cursor: pointer;
-        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
-      `;
-      btn.onclick = handler;
-      return btn;
-    };
+    const filename = runFilenameLogic();
+    copyToClipboard(filename);
 
-    const runFilenameLogic = () => {
-      const titleEl = document.querySelector('div.box-view h5 span');
-      if (!titleEl) {
-        logDebug("Could not find title element for filename logic.");
-        return "Untitled Document.pdf";
-      }
-      const originalTitle = titleEl.textContent;
-      const processedTitle = extractTitle();
-      const date = extractDateFromText(originalTitle);
-      const name = extractCaseName();
-      // Ensure the final filename has the .pdf extension added once.
-      const clean = sanitizeFilename(`${date} - ${name} - ${processedTitle}`) + '.pdf';
-      logDebug(`Computed filename: ${clean}`);
-      return clean;
-    };
+    const href = downloadBtn.getAttribute('href');
+    const url = href ? new URL(href, window.location.origin).href : null;
 
-    const downloadBtn = createButton("QUICK DOWNLOAD", "quick-download-btn", "#2a7ae2", () => {
-      const filename = runFilenameLogic();
-      copyToClipboard(filename);
-      const href = extractDownloadHref();
-      const url = href ? new URL(href, window.location.origin).href : null;
-      if (url) {
-        window.open(url, "_blank");
-        showToast("Download opened in new tab");
-        logDebug("Opened: " + url);
-      } else {
-        showToast("No download URL found");
-        logDebug("No href available");
-      }
-    });
-
-    const copyBtn = createButton("COPY FILENAME", "copy-filename-btn", "#1abc9c", () => {
-      const filename = runFilenameLogic();
-      copyToClipboard(filename);
-    });
-
-    wrapper.appendChild(downloadBtn);
-    wrapper.appendChild(copyBtn);
-    document.body.appendChild(wrapper);
+    if (url) {
+      window.open(url, "_blank");
+      showToast("Filename copied & download started");
+      logDebug("Opened: " + url);
+    } else {
+      showToast("No download URL found");
+      logDebug("No href available");
+    }
   }
 
   function init() {
     setupDebugPanel();
-    waitForElement('a[aria-label="Download Document"]', () => {
-      addButtons();
+    waitForElement('a[aria-label="Download Document"]', (downloadBtn) => {
+      downloadBtn.addEventListener('click', handleDownloadClick);
     });
   }
 
