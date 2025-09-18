@@ -246,9 +246,23 @@
 
   function handleDownloadClick(event) {
     event.preventDefault();
+    event.stopPropagation(); // Stop the event from bubbling up and triggering other listeners.
+
     const downloadBtn = event.currentTarget;
 
-    const filename = runFilenameLogic();
+    // Find the correct title element relative to the clicked button
+    const itemContainer = downloadBtn.closest('.list-group-item');
+    const titleEl = itemContainer ? itemContainer.querySelector('h5 span') : document.querySelector('div.box-view h5 span');
+
+    if (!titleEl) {
+        logDebug("Could not find title element for this download button.");
+        // Fallback to original behavior if title isn't found
+        const href = downloadBtn.getAttribute('href');
+        if (href) window.open(new URL(href, window.location.origin).href, "_blank");
+        return;
+    }
+
+    const filename = runFilenameLogic(titleEl);
     copyToClipboard(filename);
 
     const href = downloadBtn.getAttribute('href');
@@ -266,9 +280,20 @@
 
   function init() {
     setupDebugPanel();
-    waitForElement('a[aria-label="Download Document"]', (downloadBtn) => {
-      downloadBtn.addEventListener('click', handleDownloadClick);
+    // Use a MutationObserver to handle dynamically added buttons
+    const observer = new MutationObserver((mutationsList, obs) => {
+        const downloadButtons = document.querySelectorAll('a[aria-label="Download Document"]:not([data-enhanced])');
+        if (downloadButtons.length > 0) {
+            logDebug(`Found ${downloadButtons.length} new download buttons.`);
+            downloadButtons.forEach(btn => {
+                btn.setAttribute('data-enhanced', 'true'); // Mark as processed
+                btn.addEventListener('click', handleDownloadClick);
+            });
+        }
     });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    logDebug("MutationObserver is now watching for download buttons.");
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
