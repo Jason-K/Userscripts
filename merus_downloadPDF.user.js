@@ -2,7 +2,7 @@
 // @name         MerusCase Quick PDF Download (Enhanced)
 // @author       Jason K
 // @namespace    Violentmonkey Scripts
-// @version      1.1
+// @version      1.2
 // @description  Adds a QUICK DOWNLOAD button with smart renaming, UI feedback, and debug panel on MerusCase
 // @match        https://*.meruscase.com/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_downloadPDF.user.js
