@@ -239,7 +239,7 @@
     const date = extractDateFromText(originalTitle);
     const name = extractCaseName();
     // Ensure the final filename has the .pdf extension added once.
-    const clean = sanitizeFilename(`${date} - ${name} - ${processedTitle}`) + '.pdf';
+    const clean = sanitizeFilename(`${date} - ${name} - ${processedTitle}`) ;
     logDebug(`Computed filename: ${clean}`);
     return clean;
   }
