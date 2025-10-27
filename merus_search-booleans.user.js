@@ -17,11 +17,11 @@
     const CONFIG = {
         caseInsensitive: true,
         debounceDelay: 300,
-        debug: true,
+        debug: false, // Reduced logging to minimize overhead
         highlightColor: '#ffeb3b',
         excludeColor: '#f44336',
-        checkInterval: 2000, // Check every 2 seconds for missing UI
-        reinitDelay: 1000    // Wait 1 second before reinitializing
+        checkInterval: 10000, // Check every 10 seconds (reduced from 2s to prevent 429 errors)
+        reinitDelay: 2000     // Wait 2 seconds before reinitializing (reduced rapid re-init)
     };
 
     const SELECTORS = {
@@ -40,7 +40,7 @@
     let filteredRowCount = 0;
     let toggleButton = null;
     let filterBadge = null;
-    
+
     // Enhanced state management
     let isInitialized = false;
     let isInitializing = false;
@@ -58,28 +58,28 @@
         }
 
         const rawQuery = input.trim();
-        console.log('Parsing query:', rawQuery);
-        
+        if (CONFIG.debug) console.log('Parsing query:', rawQuery);
+
         let normalized = CONFIG.caseInsensitive ? rawQuery.toLowerCase() : rawQuery;
-        
+
         // Split on spaces but preserve quoted strings and handle operators properly
         const tokens = normalized.match(/(?:"[^"]*"|[^\s"]+)/g) || [];
-        console.log('Initial tokens:', tokens);
-        
+        if (CONFIG.debug) console.log('Initial tokens:', tokens);
+
         const include = [];
         const exclude = [];
         const orGroups = [];
-        
+
         let i = 0;
         while (i < tokens.length) {
             let token = tokens[i].replace(/"/g, ''); // Remove quotes
-            
+
             // Skip empty tokens
             if (!token) {
                 i++;
                 continue;
             }
-            
+
             // Handle NOT operator (must be followed by a term)
             if (token.toLowerCase() === 'not' && i + 1 < tokens.length) {
                 const nextToken = tokens[i + 1].replace(/"/g, '');
@@ -90,7 +90,7 @@
                 i += 2;
                 continue;
             }
-            
+
             // Handle exclusion with minus prefix - this is the key fix
             if (token.startsWith('-') && token.length > 1) {
                 const excludeTerm = token.substring(1);
@@ -101,7 +101,7 @@
                 i++;
                 continue;
             }
-            
+
             // Handle inclusion with plus prefix (optional, just means include)
             if (token.startsWith('+') && token.length > 1) {
                 const includeTerm = token.substring(1);
@@ -112,7 +112,7 @@
                 i++;
                 continue;
             }
-            
+
             // Handle OR groups - look ahead for OR
             if (i + 2 < tokens.length && tokens[i + 1].toLowerCase() === 'or') {
                 const orGroup = [token];
@@ -121,7 +121,7 @@
                 if (nextToken) {
                     orGroup.push(nextToken);
                 }
-                
+
                 // Continue collecting OR terms
                 while (i + 2 < tokens.length && tokens[i + 1].toLowerCase() === 'or') {
                     i += 2;
@@ -130,7 +130,7 @@
                         orGroup.push(orToken);
                     }
                 }
-                
+
                 if (orGroup.length > 1) {
                     orGroups.push(orGroup);
                     console.log('Added OR group:', orGroup);
@@ -138,13 +138,13 @@
                 i++;
                 continue;
             }
-            
+
             // Skip standalone 'or' tokens (should be handled above)
             if (token.toLowerCase() === 'or') {
                 i++;
                 continue;
             }
-            
+
             // Regular include term (default behavior)
             if (token && token !== '-' && token !== '+') {
                 include.push(token);
@@ -154,25 +154,25 @@
         }
 
         const result = { include, exclude, orGroups, rawQuery };
-        console.log('Final parsed query result:', result);
+        if (CONFIG.debug) console.log('Final parsed query result:', result);
         return result;
     }
 
     function highlightText(element, terms, className = 'merus-highlight') {
         if (!element || !terms.length) return;
-        
+
         const originalText = element.textContent;
         let html = element.innerHTML;
-        
+
         html = html.replace(/<mark[^>]*class="[^"]*merus-[^"]*"[^>]*>(.*?)<\/mark>/gi, '$1');
-        
+
         terms.forEach(term => {
             if (term && term.length > 0) {
                 const regex = new RegExp(`(${escapeRegExp(term)})`, CONFIG.caseInsensitive ? 'gi' : 'g');
                 html = html.replace(regex, `<mark class="${className}">$1</mark>`);
             }
         });
-        
+
         element.innerHTML = html;
     }
 
@@ -186,10 +186,10 @@
             console.log('No description cell found for row');
             return { text: '', cell: null };
         }
-        
+
         const text = descCell.textContent.trim();
         const normalizedText = CONFIG.caseInsensitive ? text.toLowerCase() : text;
-        
+
         return {
             text: normalizedText,
             originalText: text,
@@ -198,27 +198,29 @@
     }
 
     function applyFilters(query) {
-        console.log('Applying filters for query:', query);
-        
+        if (CONFIG.debug) console.log('Applying filters for query:', query);
+
         const { include, exclude, orGroups } = parseQuery(query);
         const allRows = document.querySelectorAll(SELECTORS.tableRow);
-        
+
         if (allRows.length === 0) {
-            console.log('No rows found to filter');
+            if (CONFIG.debug) console.log('No rows found to filter');
             return;
         }
 
-        console.log(`Starting filter with ${allRows.length} rows`);
-        console.log('Include terms:', include);
-        console.log('Exclude terms:', exclude);
-        console.log('OR groups:', orGroups);
+        if (CONFIG.debug) {
+            console.log(`Starting filter with ${allRows.length} rows`);
+            console.log('Include terms:', include);
+            console.log('Exclude terms:', exclude);
+            console.log('OR groups:', orGroups);
+        }
 
         originalRowCount = allRows.length;
         filteredRowCount = 0;
 
         allRows.forEach((row, index) => {
             const { text, originalText, cell } = getDescriptionText(row);
-            
+
             if (!cell) {
                 // Hide rows without description cells
                 row.style.visibility = 'hidden';
@@ -231,9 +233,9 @@
                 console.log(`Row ${index}: NO DESCRIPTION CELL - HIDDEN`);
                 return;
             }
-            
+
             let shouldShow = true;
-            
+
             // Step 1: Check include terms (ALL must match)
             if (include.length > 0) {
                 shouldShow = include.every(term => {
@@ -291,18 +293,18 @@
                 row.style.pointerEvents = '';
                 row.classList.remove('merus-hidden', 'merus-filtered-out');
                 filteredRowCount++;
-                
+
                 const allTerms = [...include, ...orGroups.flat()].filter(term => term && term.length > 0);
                 if (allTerms.length > 0) {
                     highlightText(cell, allTerms);
                 }
-                
+
                 console.log(`Row ${index}: SHOWN - "${originalText}"`);
             } else {
                 // Use dual approach: aggressive CSS class + inline styles
                 row.classList.add('merus-hidden');
                 row.classList.add('merus-filtered-out');
-                
+
                 // Also set inline styles as backup
                 row.style.visibility = 'hidden';
                 row.style.height = '0px';
@@ -317,16 +319,16 @@
                 row.style.overflow = 'hidden';
                 row.style.zIndex = '-1000';
                 row.style.pointerEvents = 'none';
-                
+
                 if (cell) {
                     cell.innerHTML = originalText;
                 }
-                
+
                 console.log(`Row ${index}: HIDDEN with ultra-aggressive styles - "${originalText}"`);
             }
         });
 
-        console.log(`Filter results: ${filteredRowCount} of ${originalRowCount} rows shown`);
+        if (CONFIG.debug) console.log(`Filter results: ${filteredRowCount} of ${originalRowCount} rows shown`);
         updateUI(query, { include, exclude, orGroups });
         updateStats();
     }
@@ -377,7 +379,7 @@
         }
         if (exclude.length > 0) {
             summary += `<span style="color:red"><b>Exclude:</b> ${exclude.join(', ')}</span><br>`;
-            
+
             // Check if we have very few rows (indicating native search limitation)
             const allRows = document.querySelectorAll(SELECTORS.tableRow);
             if (allRows.length < 10) {
@@ -397,28 +399,28 @@
     function findSearchInput() {
         // Try primary selector first
         let searchInput = document.querySelector(SELECTORS.searchInput);
-        
+
         // If not found, try alternative selector
         if (!searchInput) {
             const candidates = document.querySelectorAll(SELECTORS.searchInputAlt);
             if (candidates.length > 0) {
                 // Find the most likely search input
-                searchInput = Array.from(candidates).find(input => 
+                searchInput = Array.from(candidates).find(input =>
                     input.placeholder?.toLowerCase().includes('search') ||
                     input.name?.toLowerCase().includes('search') ||
                     input.closest('.search, .filter, .table-controls')
                 ) || candidates[0];
             }
         }
-        
+
         return searchInput;
     }
 
     function initializeUI() {
         const searchInput = findSearchInput();
-        
+
         if (!searchInput) {
-            console.log('Search input not found');
+            if (CONFIG.debug) console.log('Search input not found');
             return false;
         }
 
@@ -456,14 +458,14 @@
                 position: relative;
                 z-index: 1000;
             `;
-            
+
             toggleButton.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 enhancedEnabled = !enhancedEnabled;
                 localStorage.setItem('merus_enhanced_enabled', enhancedEnabled);
-                console.log('Enhanced mode toggled:', enhancedEnabled);
-                
+                if (CONFIG.debug) console.log('Enhanced mode toggled:', enhancedEnabled);
+
                 if (enhancedEnabled) {
                     applyFilters(searchInput.value);
                 } else {
@@ -474,7 +476,7 @@
             // Find stable insertion point
             const inputGroup = searchInput.closest('.input-group');
             const formGroup = searchInput.closest('.form-group');
-            
+
             if (inputGroup && inputGroup.parentNode) {
                 inputGroup.parentNode.insertBefore(toggleButton, inputGroup.nextSibling);
             } else if (formGroup && formGroup.parentNode) {
@@ -507,7 +509,7 @@
                 box-sizing: border-box;
                 min-width: 200px;
             `;
-            
+
             if (toggleButton && toggleButton.parentNode) {
                 toggleButton.parentNode.insertBefore(filterBadge, toggleButton.nextSibling);
             }
@@ -519,12 +521,12 @@
             enhancedEnabled = savedEnabled === 'true';
         }
 
-        console.log('UI initialized successfully');
+        if (CONFIG.debug) console.log('UI initialized successfully');
         return true;
     }
 
     function clearFilters() {
-        console.log('Clearing all filters');
+        if (CONFIG.debug) console.log('Clearing all filters');
         const allRows = document.querySelectorAll(SELECTORS.tableRow);
         allRows.forEach(row => {
             // Reset all hiding methods
@@ -535,7 +537,7 @@
             row.style.position = '';
             row.style.top = '';
             row.classList.remove('merus-hidden');
-            
+
             const descCell = row.querySelector(SELECTORS.descriptionCell);
             if (descCell) {
                 const originalText = descCell.textContent;
@@ -554,7 +556,7 @@
         if (filterBadge) {
             filterBadge.style.display = 'none';
         }
-        
+
         filteredRowCount = allRows.length;
     }
 
@@ -564,7 +566,7 @@
 
         // Remove any existing listeners to prevent duplicates
         searchInput.removeEventListener('input', handleSearchInput);
-        
+
         // Add input event listener with debouncing
         searchInput.addEventListener('input', handleSearchInput);
 
@@ -573,9 +575,9 @@
 
     function handleSearchInput(e) {
         const query = e.target.value;
-        
+
         // Debug logging
-        console.log('handleSearchInput called with:', query);
+        if (CONFIG.debug) console.log('handleSearchInput called with:', query);
 
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
@@ -583,13 +585,13 @@
                 if (query.trim()) {
                     // Check if the query has exclusions that might be limited by native search
                     const { include, exclude, orGroups } = parseQuery(query);
-                    if (exclude.length > 0) {
+                    if (CONFIG.debug && exclude.length > 0) {
                         console.warn('Notice: Query contains exclusions. MerusCase native search may limit results.');
                         console.log('Full query being processed:', query);
                         console.log('Include terms:', include);
                         console.log('Exclude terms:', exclude);
                     }
-                    
+
                     applyFilters(query);
                 } else {
                     clearFilters();
@@ -610,7 +612,7 @@
                 padding: 1px 2px;
                 border-radius: 2px;
             }
-            
+
             .merus-exclude-highlight {
                 background-color: ${CONFIG.excludeColor} !important;
                 color: white;
@@ -618,12 +620,12 @@
                 padding: 1px 2px;
                 border-radius: 2px;
             }
-            
+
             #chatgpt-boolean-badge {
                 box-sizing: border-box;
                 min-width: 200px;
             }
-            
+
             /* Ultra-aggressive hiding for filtered rows */
             .merus-hidden {
                 display: none !important;
@@ -645,7 +647,7 @@
                 z-index: -1000 !important;
                 pointer-events: none !important;
             }
-            
+
             /* Alternative approach - completely remove from layout */
             .merus-filtered-out {
                 display: none !important;
@@ -656,48 +658,48 @@
 
     function initialize() {
         if (isInitialized) {
-            console.log('MerusCase Enhanced Boolean Search already initialized, skipping...');
+            if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search already initialized, skipping...');
             return true;
         }
-        
+
         if (isInitializing) {
-            console.log('MerusCase Enhanced Boolean Search currently initializing, skipping...');
+            if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search currently initializing, skipping...');
             return false;
         }
 
         const searchInput = findSearchInput();
         if (!searchInput) {
-            console.log('MerusCase search input not found, retrying...');
+            if (CONFIG.debug) console.log('MerusCase search input not found, retrying...');
             return false;
         }
 
-        console.log('Initializing MerusCase Enhanced Boolean Search v2.4...');
-        
+        if (CONFIG.debug) console.log('Initializing MerusCase Enhanced Boolean Search v2.4...');
+
         isInitializing = true;
-        
+
         addStyles();
-        
+
         if (!initializeUI()) {
-            console.log('Failed to initialize UI');
+            if (CONFIG.debug) console.log('Failed to initialize UI');
             isInitializing = false;
             return false;
         }
 
         if (!setupEventListeners()) {
-            console.log('Failed to setup event listeners');
+            if (CONFIG.debug) console.log('Failed to setup event listeners');
             isInitializing = false;
             return false;
         }
 
         // Apply saved query if exists and enhanced mode is enabled (removed - no query persistence)
         if (enhancedEnabled && searchInput.value.trim()) {
-            console.log('Processing existing query in search box:', searchInput.value);
+            if (CONFIG.debug) console.log('Processing existing query in search box:', searchInput.value);
             applyFilters(searchInput.value);
         }
 
         isInitialized = true;
         isInitializing = false;
-        
+
         // Stop the initialization observer since we're done
         if (initializationObserver) {
             initializationObserver.disconnect();
@@ -707,11 +709,12 @@
         // Start persistence checker
         startPersistenceChecker();
 
-        console.log('MerusCase Enhanced Boolean Search initialized successfully!');
+        if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search initialized successfully!');
         return true;
     }
 
-    // Enhanced persistence checker
+    // Enhanced persistence checker - runs less frequently to avoid 429 errors
+    let reinitDebounce = null;
     function startPersistenceChecker() {
         if (persistenceChecker) {
             clearInterval(persistenceChecker);
@@ -722,25 +725,30 @@
             const toggleExists = document.getElementById('chatgpt-boolean-toggle');
             const badgeExists = document.getElementById('chatgpt-boolean-badge');
             const searchInputExists = findSearchInput();
-            
+
             // Check if search input reference is still valid
-            const searchInputValid = currentSearchInput && 
-                                   document.contains(currentSearchInput) && 
+            const searchInputValid = currentSearchInput &&
+                                   document.contains(currentSearchInput) &&
                                    currentSearchInput.offsetParent !== null;
 
             if (searchInputExists && (!toggleExists || !badgeExists || !searchInputValid)) {
-                console.log('MerusCase Enhanced Boolean Search: UI elements missing, reinitializing...');
-                
-                // Reset state
-                isInitialized = false;
-                isInitializing = false;
-                toggleButton = null;
-                filterBadge = null;
-                currentSearchInput = null;
-                
-                // Reinitialize after a short delay
-                setTimeout(() => {
+                if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: UI elements missing, reinitializing...');
+
+                // Debounce re-initialization to prevent rapid re-init loops
+                if (reinitDebounce) {
+                    clearTimeout(reinitDebounce);
+                }
+
+                reinitDebounce = setTimeout(() => {
+                    // Reset state
+                    isInitialized = false;
+                    isInitializing = false;
+                    toggleButton = null;
+                    filterBadge = null;
+                    currentSearchInput = null;
+
                     initialize();
+                    reinitDebounce = null;
                 }, CONFIG.reinitDelay);
             }
         }, CONFIG.checkInterval);
@@ -751,16 +759,16 @@
         if (initialize()) {
             return;
         }
-        
+
         // Set up MutationObserver to watch for the search input to appear
         initializationObserver = new MutationObserver((mutations) => {
             if (isInitialized || isInitializing) {
                 return;
             }
-            
+
             const searchInput = findSearchInput();
             if (searchInput) {
-                console.log('Search input found, attempting initialization...');
+                if (CONFIG.debug) console.log('Search input found, attempting initialization...');
                 initialize();
             }
         });
@@ -769,53 +777,87 @@
             childList: true,
             subtree: true
         });
-        
-        console.log('MerusCase Enhanced Boolean Search: Waiting for search input to appear...');
+
+        if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: Waiting for search input to appear...');
     }
 
-    // Simplified navigation handling
+    // Navigation handling using native events instead of polling
+    let navigationDebounce = null;
     function handleNavigation() {
         const newUrl = location.href;
         if (newUrl !== currentUrl) {
             currentUrl = newUrl;
-            console.log('MerusCase Enhanced Boolean Search: Navigation detected, resetting...');
-            
-            // Stop persistence checker
-            if (persistenceChecker) {
-                clearInterval(persistenceChecker);
-                persistenceChecker = null;
+            if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: Navigation detected, resetting...');
+
+            // Debounce navigation handling
+            if (navigationDebounce) {
+                clearTimeout(navigationDebounce);
             }
-            
-            // Reset state
-            isInitialized = false;
-            isInitializing = false;
-            toggleButton = null;
-            filterBadge = null;
-            currentSearchInput = null;
-            
-            // Clean up existing elements
-            const existingToggle = document.getElementById('chatgpt-boolean-toggle');
-            const existingBadge = document.getElementById('chatgpt-boolean-badge');
-            if (existingToggle) existingToggle.remove();
-            if (existingBadge) existingBadge.remove();
-            
-            // Reinitialize after delay
-            setTimeout(() => {
+
+            navigationDebounce = setTimeout(() => {
+                // Stop persistence checker
+                if (persistenceChecker) {
+                    clearInterval(persistenceChecker);
+                    persistenceChecker = null;
+                }
+
+                // Disconnect observers to prevent memory leaks
+                if (initializationObserver) {
+                    initializationObserver.disconnect();
+                    initializationObserver = null;
+                }
+
+                // Reset state
+                isInitialized = false;
+                isInitializing = false;
+                toggleButton = null;
+                filterBadge = null;
+                currentSearchInput = null;
+
+                // Clean up existing elements
+                const existingToggle = document.getElementById('chatgpt-boolean-toggle');
+                const existingBadge = document.getElementById('chatgpt-boolean-badge');
+                if (existingToggle) existingToggle.remove();
+                if (existingBadge) existingBadge.remove();
+
+                // Reinitialize after delay
                 setupInitialization();
+                navigationDebounce = null;
             }, CONFIG.reinitDelay);
         }
     }
 
-    // Use a simple interval-based navigation detector instead of MutationObserver
-    setInterval(handleNavigation, 1000);
+    // Use native popstate and hashchange events instead of polling every second
+    window.addEventListener('popstate', handleNavigation);
+    window.addEventListener('hashchange', handleNavigation);
+    // Fallback interval check at much lower frequency (every 30 seconds)
+    setInterval(handleNavigation, 30000);
 
-    // Cleanup on page unload
+    // Cleanup on page unload and visibility changes
     window.addEventListener('beforeunload', () => {
         if (persistenceChecker) {
             clearInterval(persistenceChecker);
+            persistenceChecker = null;
         }
         if (initializationObserver) {
             initializationObserver.disconnect();
+            initializationObserver = null;
+        }
+    });
+
+    // Pause checking when page is hidden to reduce resource usage
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            // Stop persistence checker when tab is hidden
+            if (persistenceChecker) {
+                clearInterval(persistenceChecker);
+                persistenceChecker = null;
+            }
+        } else {
+            // Resume when tab becomes visible
+            if (isInitialized && !persistenceChecker) {
+                startPersistenceChecker();
+            }
         }
     });
 
