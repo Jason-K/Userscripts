@@ -173,7 +173,15 @@
     ensureButtons();
     try{
       var pending=null;
-      var mo=new MutationObserver(function(){ if(pending) return; pending=setTimeout(function(){ pending=null; ensureButtons(); }, 300); });
+      // Increased throttle from 300ms to 2000ms (2s) to reduce load
+      var mo=new MutationObserver(function(){
+        if(pending) return;
+        pending=setTimeout(function(){
+          pending=null;
+          ensureButtons();
+        }, 2000);
+      });
+      // Only watch childList, not attributes or characterData
       mo.observe(document.documentElement, { childList:true, subtree:true });
     }catch(e){}
   }

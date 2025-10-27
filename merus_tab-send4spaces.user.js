@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         MerusCase Note Smart Tab
-// @version      3.0
+// @version      3.0.1
 // @description  Insert or remove 4-space indents in MerusCase notes with Tab, Shift+Tab, and Backspace. Toggle behavior and nbsp support.
 // @author       Jason K.
 // @namespace    http://tampermonkey.net/

@@ -80,7 +80,7 @@
 
     // 1. Replace the full, specific name first, with correct capitalization.
     title = title.replace(/william r\. campbell, d\.o\., qme/g, 'Dr. Campbell QME');
-    
+
     // 2. Replace any other known long names or phrases
     // e.g., title = title.replace(/another long name, m\.d\./g, 'Dr. Othername');
 
@@ -98,7 +98,7 @@
     title = title.replace(/[.,\s]+$/, '').trim();
     // Remove extra spaces
     title = title.replace(/\s+/g, ' ');
-    
+
     return title;
   }
 
@@ -120,7 +120,7 @@
 
     // Process the title using the new unified function
     title = processTitle(title);
-    
+
     // Clean up extra spaces and punctuation
     title = title.replace(/\s+/g, ' ').trim();
 
@@ -280,20 +280,35 @@
 
   function init() {
     setupDebugPanel();
-    // Use a MutationObserver to handle dynamically added buttons
+
+    // Process existing buttons first
+    const existingButtons = document.querySelectorAll('a[aria-label="Download Document"]:not([data-enhanced])');
+    existingButtons.forEach(btn => {
+        btn.setAttribute('data-enhanced', 'true');
+        btn.addEventListener('click', handleDownloadClick);
+    });
+    logDebug(`Processed ${existingButtons.length} existing download buttons.`);
+
+    // Use throttled MutationObserver for dynamically added buttons
+    let observerThrottle = null;
     const observer = new MutationObserver((mutationsList, obs) => {
+        // Throttle to max once per second to prevent rate limiting
+        if (observerThrottle) return;
+        observerThrottle = setTimeout(() => { observerThrottle = null; }, 1000);
+
         const downloadButtons = document.querySelectorAll('a[aria-label="Download Document"]:not([data-enhanced])');
         if (downloadButtons.length > 0) {
             logDebug(`Found ${downloadButtons.length} new download buttons.`);
             downloadButtons.forEach(btn => {
-                btn.setAttribute('data-enhanced', 'true'); // Mark as processed
+                btn.setAttribute('data-enhanced', 'true');
                 btn.addEventListener('click', handleDownloadClick);
             });
         }
     });
 
+    // Only observe childList changes, not attributes/characterData
     observer.observe(document.body, { childList: true, subtree: true });
-    logDebug("MutationObserver is now watching for download buttons.");
+    logDebug("Throttled MutationObserver is now watching for download buttons.");
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
