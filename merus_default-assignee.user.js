@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Default Assignee
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      1.0.0
+// @version      1.0.1
 // @description  Automatically sets Sommer Murray as default assignee and today's date for new tasks in MerusCase
 // @author       Jason Knox
 // @match        https://*.meruscase.com/tasks/add*
@@ -16,13 +16,12 @@
 
     // Configuration
     const CONFIG = {
-        defaultAssignee: 'Sommer Murray (SEM)', // The name to search for in the assignee dropdown
-        setDueDate: true, // Whether to automatically set today's date
-        showNotifications: true, // Show success/error notifications
-        debugMode: false // Enable console logging
+        defaultAssignee: 'Sommer Murray (SEM)',
+        setDueDate: true,
+        showNotifications: false,
+        debugMode: false
     };
 
-    // Helper function to log debug messages
     function debugLog(...args) {
         if (CONFIG.debugMode) {
             console.log('[MerusCase Default Assignee]', ...args);
@@ -214,12 +213,12 @@
             }
         }, 500);
 
-        // Stop observing after 5 seconds to prevent memory leaks and rate limiting
+        // Stop observing after 2 seconds to prevent memory leaks and rate limiting
         setTimeout(() => {
             observer.disconnect();
             observerThrottle = null;
             debugLog('Stopped observing after timeout');
-        }, 5000);
+        }, 2000);
     }
 
     // Initialize based on page context

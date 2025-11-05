@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase → Antinote (Single Launch, Append Trimmed, ES5)
 // @namespace    jjk.merus.antinote
-// @version      0.9.0
+// @version      0.9.1
 // @description  One-click Antinote (create/append). Single launch to avoid duplicates; append = Date/Time + Active Doc + MD header.
 // @match        https://meruscase.com/*
 // @match        https://*.meruscase.com/*
@@ -13,8 +13,7 @@
   'use strict';
 
   // ===== Config =====
-  // Choose ONE launch method: 'anchor' | 'location' | 'open' | 'iframe'
-  var LAUNCH_METHOD = 'anchor';
+  var LAUNCH_METHOD = 'anchor'; // 'anchor' | 'location' | 'open' | 'iframe'
   var USE_TITLE = true; // true => add &title=<client> on "Create"
   var REENTRY_MS = 1500; // ignore repeat clicks within this window
 
@@ -186,7 +185,7 @@
     }catch(e){}
   }
 
-  // Hotkey = Create (Alt+Shift+A). Want a second hotkey for Append? I can add it.
+  // Hotkey = Alt+Shift+A
   function hotkey(e){ if(e && e.altKey && e.shiftKey && e.code==='KeyA'){ var b=document.querySelector('.jjk-antinote-btn.create'); if(b) b.click(); } }
 
   if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', init, {once:true}); } else { init(); }
