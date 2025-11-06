@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase → Antinote (Single Launch, Append Trimmed, ES5)
 // @namespace    jjk.merus.antinote
-// @version      0.9.1
+// @version      0.9.2
 // @description  One-click Antinote (create/append). Single launch to avoid duplicates; append = Date/Time + Active Doc + MD header.
 // @match        https://meruscase.com/*
 // @match        https://*.meruscase.com/*
@@ -172,16 +172,26 @@
     ensureButtons();
     try{
       var pending=null;
-      // Increased throttle from 300ms to 2000ms (2s) to reduce load
+      var checkCount=0;
+      var maxChecks=5; // Stop observing after 5 successful checks
+      // Increased throttle to 5000ms (5s) to prevent rate limiting
       var mo=new MutationObserver(function(){
         if(pending) return;
         pending=setTimeout(function(){
           pending=null;
-          ensureButtons();
-        }, 2000);
+          // Lightweight check: only call ensureButtons if buttons might be missing
+          if(!document.querySelector('.jjk-antinote-btn.create') || !document.querySelector('.jjk-antinote-btn.append')){
+            ensureButtons();
+          }
+          checkCount++;
+          // Stop observing after buttons are reliably present
+          if(checkCount>=maxChecks && mo){
+            mo.disconnect();
+          }
+        }, 5000);
       });
-      // Only watch childList, not attributes or characterData
-      mo.observe(document.documentElement, { childList:true, subtree:true });
+      // Only watch body, not entire document - more targeted
+      mo.observe(document.body, { childList:true, subtree:false });
     }catch(e){}
   }
 
