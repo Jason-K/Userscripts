@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
-// @version      2.5
+// @version      2.6 - MutationObservers disabled to prevent rate limiting
 // @author       Jason K.
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @namespace    http://tampermonkey.net/
@@ -713,45 +713,12 @@
         return true;
     }
 
-    // Enhanced persistence checker - runs less frequently to avoid 429 errors
+    // Enhanced persistence checker - DISABLED to prevent rate limiting
     let reinitDebounce = null;
     function startPersistenceChecker() {
-        if (persistenceChecker) {
-            clearInterval(persistenceChecker);
-        }
-
-        persistenceChecker = setInterval(() => {
-            // Check if our UI elements still exist
-            const toggleExists = document.getElementById('chatgpt-boolean-toggle');
-            const badgeExists = document.getElementById('chatgpt-boolean-badge');
-            const searchInputExists = findSearchInput();
-
-            // Check if search input reference is still valid
-            const searchInputValid = currentSearchInput &&
-                                   document.contains(currentSearchInput) &&
-                                   currentSearchInput.offsetParent !== null;
-
-            if (searchInputExists && (!toggleExists || !badgeExists || !searchInputValid)) {
-                if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: UI elements missing, reinitializing...');
-
-                // Debounce re-initialization to prevent rapid re-init loops
-                if (reinitDebounce) {
-                    clearTimeout(reinitDebounce);
-                }
-
-                reinitDebounce = setTimeout(() => {
-                    // Reset state
-                    isInitialized = false;
-                    isInitializing = false;
-                    toggleButton = null;
-                    filterBadge = null;
-                    currentSearchInput = null;
-
-                    initialize();
-                    reinitDebounce = null;
-                }, CONFIG.reinitDelay);
-            }
-        }, CONFIG.checkInterval);
+        // PERSISTENCE CHECKING DISABLED - causes rate limiting
+        // If UI elements disappear, user can refresh the page
+        if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: Persistence checker DISABLED to prevent rate limiting');
     }
 
     function setupInitialization() {
@@ -760,38 +727,35 @@
             return;
         }
 
-        // Set up MutationObserver to watch for the search input to appear
-        let observerThrottle = null;
-        initializationObserver = new MutationObserver((mutations) => {
-            if (isInitialized || isInitializing) {
+        // NO MutationObserver - causes rate limiting
+        // Instead, retry initialization with exponential backoff
+        let retryCount = 0;
+        const maxRetries = 5;
+        const retryDelays = [1000, 2000, 4000, 8000, 16000]; // 1s, 2s, 4s, 8s, 16s
+
+        function retryInit() {
+            if (retryCount >= maxRetries) {
+                if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: Max retries reached');
                 return;
             }
 
-            // Throttle to max once per 3 seconds
-            if (observerThrottle) return;
-            observerThrottle = setTimeout(() => { observerThrottle = null; }, 3000);
+            setTimeout(() => {
+                if (!isInitialized && !isInitializing) {
+                    const searchInput = findSearchInput();
+                    if (searchInput) {
+                        if (CONFIG.debug) console.log('Search input found on retry, attempting initialization...');
+                        initialize();
+                    } else {
+                        retryCount++;
+                        retryInit();
+                    }
+                }
+            }, retryDelays[retryCount]);
+        }
 
-            const searchInput = findSearchInput();
-            if (searchInput) {
-                if (CONFIG.debug) console.log('Search input found, attempting initialization...');
-                initialize();
-            }
-        });
+        retryInit();
 
-        initializationObserver.observe(document.body, {
-            childList: true,
-            subtree: false // Reduced from true to minimize DOM queries
-        });
-
-        // Auto-disconnect after 30 seconds to prevent indefinite observation
-        setTimeout(() => {
-            if (initializationObserver) {
-                initializationObserver.disconnect();
-                initializationObserver = null;
-            }
-        }, 30000);
-
-        if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: Waiting for search input to appear...');
+        if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: Will retry initialization with backoff...');
     }
 
     // Navigation handling using native events instead of polling
@@ -840,11 +804,10 @@
         }
     }
 
-    // Use native popstate and hashchange events instead of polling every second
+    // Use native popstate and hashchange events instead of polling
     window.addEventListener('popstate', handleNavigation);
     window.addEventListener('hashchange', handleNavigation);
-    // Fallback interval check at much lower frequency (every 60 seconds)
-    setInterval(handleNavigation, 60000);
+    // NO interval polling - causes rate limiting
 
     // Cleanup on page unload and visibility changes
     window.addEventListener('beforeunload', () => {

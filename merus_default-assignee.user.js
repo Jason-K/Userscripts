@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Default Assignee
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      1.0.2
+// @version      1.0.3
 // @description  Automatically sets Sommer Murray as default assignee and today's date for new tasks in MerusCase
 // @author       Jason Knox
 // @match        https://*.meruscase.com/tasks/add*
@@ -169,56 +169,37 @@
         }
     }
 
-    // Function to observe DOM changes and apply defaults when form appears
-    let observerThrottle = null;
+    // Function to check for form with retry logic (no MutationObserver)
     function observeFormCreation() {
-        debugLog('Starting form observation...');
+        debugLog('Starting form observation with retry logic...');
 
-        // Create observer to watch for form creation with throttling
-        const observer = new MutationObserver((mutations) => {
-            // Throttle to prevent excessive firing (max once per 2000ms)
-            if (observerThrottle) return;
-            observerThrottle = setTimeout(() => { observerThrottle = null; }, 2000);
+        let retryCount = 0;
+        const maxRetries = 5;
+        const retryDelays = [500, 1000, 2000, 4000, 8000]; // Exponential backoff
 
+        function checkForm() {
             // Check if task form elements now exist
             const assigneeSelect = document.querySelector('select[name="data[Task][user_id]"]');
             const dueDateInput = document.querySelector('input[name="data[Task][date_due]"]');
 
             if (assigneeSelect || dueDateInput) {
                 debugLog('Task form detected, applying defaults...');
-
                 // Small delay to ensure form is fully rendered
                 setTimeout(() => {
                     applyDefaults();
                 }, 100);
-
-                // Stop observing once form is found
-                observer.disconnect();
-                observerThrottle = null;
+            } else if (retryCount < maxRetries) {
+                // Retry with exponential backoff
+                retryCount++;
+                setTimeout(checkForm, retryDelays[retryCount - 1]);
+                debugLog(`Form not found, retry ${retryCount}/${maxRetries}`);
+            } else {
+                debugLog('Max retries reached, form not found');
             }
-        });
+        }
 
-        // Start observing with reduced scope - only childList on body, not subtree
-        observer.observe(document.body, {
-            childList: true,
-            subtree: false
-        });
-
-        // Also try immediately in case form is already present
-        setTimeout(() => {
-            const assigneeSelect = document.querySelector('select[name="data[Task][user_id]"]');
-            if (assigneeSelect) {
-                applyDefaults();
-                observer.disconnect();
-            }
-        }, 1000);
-
-        // Stop observing after 5 seconds to prevent memory leaks and rate limiting
-        setTimeout(() => {
-            observer.disconnect();
-            observerThrottle = null;
-            debugLog('Stopped observing after timeout');
-        }, 5000);
+        // Start checking immediately
+        checkForm();
     }
 
     // Initialize based on page context

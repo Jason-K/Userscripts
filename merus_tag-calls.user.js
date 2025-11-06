@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Meruscase Auto-Tagger
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Automatically apply activity tags based on note content in Meruscase
 // @author       Jason K.
 // @match        https://meruscase.com/*
@@ -334,24 +334,15 @@
         console.log('Meruscase Auto-Tagger initialized');
         addSaveButtonListeners();
 
-        // Re-run listener attachment when DOM changes (for dynamically loaded content)
-        let observerThrottle = null;
-        const observer = new MutationObserver(() => {
-            // Throttle to max once per 3 seconds to prevent rate limiting
-            if (observerThrottle) return;
-            observerThrottle = setTimeout(() => { observerThrottle = null; }, 3000);
-
-            addSaveButtonListeners();
-        });
-
-        // Reduced scope: only watch childList on body, no subtree
-        observer.observe(document.body, {
-            childList: true,
-            subtree: false
-        });
-    }
-
-    // Initialize when DOM is ready
+        // NO MutationObserver - causes rate limiting on MerusCase SPA
+        // Use event delegation on document instead
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.closest('button[type="submit"]')) {
+                // Re-attach listeners when user clicks submit (safer than observing)
+                setTimeout(addSaveButtonListeners, 100);
+            }
+        }, true);
+    }    // Initialize when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Smart Renamer
 // @namespace    http://tampermonkey.net/
-// @version      0.4
+// @version      0.5
 // @description  Rename files in MerusCase based on a set of rules and auto-save.
 // @author       Jason K.
 // @match        *://*.meruscase.com/*
@@ -424,35 +424,24 @@
             smartRenameButton.style.display = isVisible ? 'block' : 'none';
         };
 
-        let observerThrottle = null;
+        // NO MutationObserver - use periodic checks with increasing intervals instead
         let checkCount = 0;
-        const maxChecks = 5; // Disconnect after 5 successful checks
+        const maxChecks = 5;
+        const checkIntervals = [500, 1000, 2000, 4000, 8000]; // Exponential backoff
 
-        const observer = new MutationObserver(() => {
-            // Throttle to max once per 2000ms to prevent rate limiting
-            if (observerThrottle) return;
-            observerThrottle = setTimeout(() => { observerThrottle = null; }, 2000);
-
+        function checkVisibility() {
             toggleSmartRenameButton();
             checkCount++;
 
-            // Stop observing after button state is established
-            if (checkCount >= maxChecks) {
-                observer.disconnect();
+            if (checkCount < maxChecks) {
+                setTimeout(checkVisibility, checkIntervals[checkCount]);
             }
-        });
+        }
 
-        // Reduced scope: only watch childList on body, no subtree or attributes
-        observer.observe(document.body, {
-            childList: true,
-            subtree: false
-        });
-
-        // Perform an initial check in case the button is already on the page
+        // Perform initial check and start periodic checks
         toggleSmartRenameButton();
-    }
-
-    // Wait for page to load before creating button
+        setTimeout(checkVisibility, checkIntervals[0]);
+    }    // Wait for page to load before creating button
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', createButton);
     } else {

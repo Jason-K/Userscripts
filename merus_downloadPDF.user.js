@@ -2,7 +2,7 @@
 // @name         MerusCase Quick PDF Download (Enhanced)
 // @author       Jason K
 // @namespace    Violentmonkey Scripts
-// @version      1.3
+// @version      1.4
 // @description  Adds a QUICK DOWNLOAD button with smart renaming, UI feedback, and debug panel on MerusCase
 // @match        https://*.meruscase.com/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_downloadPDF.user.js
@@ -289,36 +289,18 @@
     });
     logDebug(`Processed ${existingButtons.length} existing download buttons.`);
 
-    // Use throttled MutationObserver for dynamically added buttons
-    let observerThrottle = null;
-    let observerCheckCount = 0;
-    const maxObserverChecks = 10; // Disconnect after 10 checks
-
-    const observer = new MutationObserver((mutationsList, obs) => {
-        // Throttle to max once per 3 seconds to prevent rate limiting
-        if (observerThrottle) return;
-        observerThrottle = setTimeout(() => { observerThrottle = null; }, 3000);
-
-        const downloadButtons = document.querySelectorAll('a[aria-label="Download Document"]:not([data-enhanced])');
-        if (downloadButtons.length > 0) {
-            logDebug(`Found ${downloadButtons.length} new download buttons.`);
-            downloadButtons.forEach(btn => {
-                btn.setAttribute('data-enhanced', 'true');
-                btn.addEventListener('click', handleDownloadClick);
-            });
+    // NO MutationObserver - causes rate limiting
+    // Use event delegation instead: intercept clicks on parent container
+    document.body.addEventListener('click', function(e) {
+        const downloadBtn = e.target.closest('a[aria-label="Download Document"]');
+        if (downloadBtn && !downloadBtn.hasAttribute('data-enhanced')) {
+            downloadBtn.setAttribute('data-enhanced', 'true');
+            // Process this button for future clicks
+            downloadBtn.addEventListener('click', handleDownloadClick);
+            logDebug('Enhanced download button via event delegation');
         }
-
-        observerCheckCount++;
-        // Stop observing after establishing initial button handlers
-        if (observerCheckCount >= maxObserverChecks) {
-            observer.disconnect();
-            logDebug('MutationObserver disconnected after reaching max checks.');
-        }
-    });
-
-    // Only observe childList changes on body, not subtree
-    observer.observe(document.body, { childList: true, subtree: false });
-    logDebug("Throttled MutationObserver is now watching for download buttons.");
+    }, true);
+    logDebug("Using event delegation for download buttons (no MutationObserver).");
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
