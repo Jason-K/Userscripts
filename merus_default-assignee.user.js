@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Default Assignee
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      1.0.1
+// @version      1.0.2
 // @description  Automatically sets Sommer Murray as default assignee and today's date for new tasks in MerusCase
 // @author       Jason Knox
 // @match        https://*.meruscase.com/tasks/add*
@@ -176,9 +176,9 @@
 
         // Create observer to watch for form creation with throttling
         const observer = new MutationObserver((mutations) => {
-            // Throttle to prevent excessive firing (max once per 500ms)
+            // Throttle to prevent excessive firing (max once per 2000ms)
             if (observerThrottle) return;
-            observerThrottle = setTimeout(() => { observerThrottle = null; }, 500);
+            observerThrottle = setTimeout(() => { observerThrottle = null; }, 2000);
 
             // Check if task form elements now exist
             const assigneeSelect = document.querySelector('select[name="data[Task][user_id]"]');
@@ -198,10 +198,10 @@
             }
         });
 
-        // Start observing with reduced scope - only childList, not attributes
+        // Start observing with reduced scope - only childList on body, not subtree
         observer.observe(document.body, {
             childList: true,
-            subtree: true
+            subtree: false
         });
 
         // Also try immediately in case form is already present
@@ -211,14 +211,14 @@
                 applyDefaults();
                 observer.disconnect();
             }
-        }, 500);
+        }, 1000);
 
-        // Stop observing after 2 seconds to prevent memory leaks and rate limiting
+        // Stop observing after 5 seconds to prevent memory leaks and rate limiting
         setTimeout(() => {
             observer.disconnect();
             observerThrottle = null;
             debugLog('Stopped observing after timeout');
-        }, 2000);
+        }, 5000);
     }
 
     // Initialize based on page context

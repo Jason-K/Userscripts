@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         MerusCase Enhanced Boolean Search (Robust)
-// @version      2.4
+// @version      2.5
 // @author       Jason K.
 // @description  Robust boolean search for MerusCase Activity View - handles navigation and persistence
 // @namespace    http://tampermonkey.net/
@@ -20,8 +20,8 @@
         debug: false, // Reduced logging to minimize overhead
         highlightColor: '#ffeb3b',
         excludeColor: '#f44336',
-        checkInterval: 10000, // Check every 10 seconds (reduced from 2s to prevent 429 errors)
-        reinitDelay: 2000     // Wait 2 seconds before reinitializing (reduced rapid re-init)
+        checkInterval: 30000, // Check every 30 seconds (increased from 10s to prevent 429 errors)
+        reinitDelay: 5000     // Wait 5 seconds before reinitializing (increased from 2s)
     };
 
     const SELECTORS = {
@@ -761,10 +761,15 @@
         }
 
         // Set up MutationObserver to watch for the search input to appear
+        let observerThrottle = null;
         initializationObserver = new MutationObserver((mutations) => {
             if (isInitialized || isInitializing) {
                 return;
             }
+
+            // Throttle to max once per 3 seconds
+            if (observerThrottle) return;
+            observerThrottle = setTimeout(() => { observerThrottle = null; }, 3000);
 
             const searchInput = findSearchInput();
             if (searchInput) {
@@ -775,8 +780,16 @@
 
         initializationObserver.observe(document.body, {
             childList: true,
-            subtree: true
+            subtree: false // Reduced from true to minimize DOM queries
         });
+
+        // Auto-disconnect after 30 seconds to prevent indefinite observation
+        setTimeout(() => {
+            if (initializationObserver) {
+                initializationObserver.disconnect();
+                initializationObserver = null;
+            }
+        }, 30000);
 
         if (CONFIG.debug) console.log('MerusCase Enhanced Boolean Search: Waiting for search input to appear...');
     }
@@ -830,8 +843,8 @@
     // Use native popstate and hashchange events instead of polling every second
     window.addEventListener('popstate', handleNavigation);
     window.addEventListener('hashchange', handleNavigation);
-    // Fallback interval check at much lower frequency (every 30 seconds)
-    setInterval(handleNavigation, 30000);
+    // Fallback interval check at much lower frequency (every 60 seconds)
+    setInterval(handleNavigation, 60000);
 
     // Cleanup on page unload and visibility changes
     window.addEventListener('beforeunload', () => {

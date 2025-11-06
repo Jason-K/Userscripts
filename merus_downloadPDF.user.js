@@ -2,7 +2,7 @@
 // @name         MerusCase Quick PDF Download (Enhanced)
 // @author       Jason K
 // @namespace    Violentmonkey Scripts
-// @version      1.2
+// @version      1.3
 // @description  Adds a QUICK DOWNLOAD button with smart renaming, UI feedback, and debug panel on MerusCase
 // @match        https://*.meruscase.com/*
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_downloadPDF.user.js
@@ -291,10 +291,13 @@
 
     // Use throttled MutationObserver for dynamically added buttons
     let observerThrottle = null;
+    let observerCheckCount = 0;
+    const maxObserverChecks = 10; // Disconnect after 10 checks
+
     const observer = new MutationObserver((mutationsList, obs) => {
-        // Throttle to max once per second to prevent rate limiting
+        // Throttle to max once per 3 seconds to prevent rate limiting
         if (observerThrottle) return;
-        observerThrottle = setTimeout(() => { observerThrottle = null; }, 1000);
+        observerThrottle = setTimeout(() => { observerThrottle = null; }, 3000);
 
         const downloadButtons = document.querySelectorAll('a[aria-label="Download Document"]:not([data-enhanced])');
         if (downloadButtons.length > 0) {
@@ -304,10 +307,17 @@
                 btn.addEventListener('click', handleDownloadClick);
             });
         }
+
+        observerCheckCount++;
+        // Stop observing after establishing initial button handlers
+        if (observerCheckCount >= maxObserverChecks) {
+            observer.disconnect();
+            logDebug('MutationObserver disconnected after reaching max checks.');
+        }
     });
 
-    // Only observe childList changes, not attributes/characterData
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Only observe childList changes on body, not subtree
+    observer.observe(document.body, { childList: true, subtree: false });
     logDebug("Throttled MutationObserver is now watching for download buttons.");
   }
 

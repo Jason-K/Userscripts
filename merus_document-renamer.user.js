@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Smart Renamer
 // @namespace    http://tampermonkey.net/
-// @version      0.3
+// @version      0.4
 // @description  Rename files in MerusCase based on a set of rules and auto-save.
 // @author       Jason K.
 // @match        *://*.meruscase.com/*
@@ -71,18 +71,18 @@
     function toTitleCase(str) {
         // Words that should remain lowercase in title case (unless first or last word)
         const lowercaseWords = new Set(['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'in', 'of', 'on', 'or', 'the', 'to', 'up', 'yet', 'so', 'nor']);
-        
+
         const words = str.split(' ');
         return words.map(function(word, index) {
             if (word.length === 0) return word;
-            
+
             // Handle words with apostrophes like "O'Brien"
             if (word.includes("'")) {
                 return word.split("'").map(function(part) {
                     return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
                 }).join("'");
             }
-            
+
             const lowerWord = word.toLowerCase();
             // First and last words are always capitalized, others follow title case rules
             if (index === 0 || index === words.length - 1 || !lowercaseWords.has(lowerWord)) {
@@ -140,7 +140,7 @@
         if (/^letter\b/i.test(txt)) {
             return "letter";
         }
-        
+
         // Then check other document types
         for (const rule of DOC_TYPE_RULES) {
             const expr = rule[0];
@@ -188,10 +188,10 @@
         const extracted = extractDate(stem);
         let remainder = extracted[0];
         const dateStr = extracted[1];
-        
+
         // Handle "re" replacement - convert to "re." instead of " – "
         remainder = remainder.replace(/\bre\b/gi, 're.');
-        
+
         const doctorResult = normalizeDoctor(remainder);
         remainder = doctorResult[0];
         const doctor = doctorResult[1];
@@ -220,11 +220,11 @@
 
         // Clean up description
         description = description.trim().replace(/^[-\s]+/, '').replace(/[-\s]+$/, '');
-        
+
         // Normalize business names first (before smart case)
         const businessResult = normalizeBusiness(description);
         description = businessResult.text;
-        
+
         // Apply smart case to description only if it wasn't a business name
         if (!businessResult.wasBusiness) {
             description = smartCase(description);
@@ -262,7 +262,7 @@
         if (input && input.value) {
             return input;
         }
-        
+
         // Fallback to any input with data-merus-type="input" that has content
         const merusInputs = document.querySelectorAll('input[data-merus-type="input"]');
         for (let i = 0; i < merusInputs.length; i++) {
@@ -271,7 +271,7 @@
                 return inp;
             }
         }
-        
+
         // Final fallback to any visible input with file-like content
         const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
         for (let i = 0; i < allInputs.length; i++) {
@@ -280,7 +280,7 @@
                 return inp;
             }
         }
-        
+
         return null;
     }
 
@@ -288,7 +288,7 @@
         if (undoButton) {
             return; // Already exists
         }
-        
+
         undoButton = document.createElement('button');
         undoButton.textContent = 'Undo Rename';
         undoButton.style.position = 'fixed';
@@ -302,28 +302,28 @@
         undoButton.style.borderRadius = '5px';
         undoButton.style.cursor = 'pointer';
         undoButton.style.fontSize = '12px';
-        
+
         undoButton.addEventListener('click', function() {
             if (undoData && undoData.input && undoData.originalValue) {
                 undoData.input.value = undoData.originalValue;
-                
+
                 // Trigger events
                 const inputEvent = new Event('input', { bubbles: true });
                 undoData.input.dispatchEvent(inputEvent);
-                
+
                 const changeEvent = new Event('change', { bubbles: true });
                 undoData.input.dispatchEvent(changeEvent);
-                
+
                 console.log('MerusCase Smart Renamer: Undid rename, restored "' + undoData.originalValue + '"');
-                
+
                 // Remove undo button and clear undo data
                 removeUndoButton();
             }
         });
-        
+
         document.body.appendChild(undoButton);
     }
-    
+
     function removeUndoButton() {
         if (undoButton) {
             undoButton.remove();
@@ -352,24 +352,24 @@
         button.addEventListener('click', function() {
             // First, try to click the MerusCase rename button if it's visible
             const renameButtonClicked = findAndClickRenameButton();
-            
+
             // If we clicked the rename button, wait a moment for the form to appear
             const delay = renameButtonClicked ? 200 : 0;
-            
+
             setTimeout(function() {
                 const targetInput = findTargetInput();
-                
+
                 if (!targetInput) {
                     alert('No suitable input field found. Please make sure you have a file description field with content visible on the page.');
                     return;
                 }
-                
+
                 const originalValue = targetInput.value;
                 if (!originalValue || !originalValue.trim()) {
                     alert('Input field is empty.');
                     return;
                 }
-                
+
                 const path = originalValue;
                 const stem = path.includes('.') ? path.substring(0, path.lastIndexOf('.')) : path;
                 const ext = path.includes('.') ? path.substring(path.lastIndexOf('.')) : '';
@@ -379,26 +379,26 @@
                     const newStem = transform(stem);
                     const newValue = newStem + ext;
                     targetInput.value = newValue;
-                    
+
                     // Store undo data before triggering events
                     undoData = {
                         input: targetInput,
                         originalValue: originalValue
                     };
-                    
+
                     // Trigger input event to ensure MerusCase recognizes the change
                     const inputEvent = new Event('input', { bubbles: true });
                     targetInput.dispatchEvent(inputEvent);
-                    
+
                     // Trigger change event as well
                     const changeEvent = new Event('change', { bubbles: true });
                     targetInput.dispatchEvent(changeEvent);
-                    
+
                     console.log('MerusCase Smart Renamer: Renamed "' + originalValue + '" to "' + newValue + '"');
-                    
+
                     // Create undo button
                     createUndoButton();
-                    
+
                     // No popup - user can see the result directly in the input field
                 } catch (err) {
                     console.error("SmartRename Error:", err);
@@ -424,13 +424,28 @@
             smartRenameButton.style.display = isVisible ? 'block' : 'none';
         };
 
-        const observer = new MutationObserver(toggleSmartRenameButton);
+        let observerThrottle = null;
+        let checkCount = 0;
+        const maxChecks = 5; // Disconnect after 5 successful checks
 
+        const observer = new MutationObserver(() => {
+            // Throttle to max once per 2000ms to prevent rate limiting
+            if (observerThrottle) return;
+            observerThrottle = setTimeout(() => { observerThrottle = null; }, 2000);
+
+            toggleSmartRenameButton();
+            checkCount++;
+
+            // Stop observing after button state is established
+            if (checkCount >= maxChecks) {
+                observer.disconnect();
+            }
+        });
+
+        // Reduced scope: only watch childList on body, no subtree or attributes
         observer.observe(document.body, {
             childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class', 'style']
+            subtree: false
         });
 
         // Perform an initial check in case the button is already on the page
