@@ -41,7 +41,20 @@
 
           // Helper functions using MerusCore utilities
         function isEmailView() {
-            return document.querySelector('#message-sender') !== null;
+            // Check for email view with editable capabilities
+            const hasMessageSender = document.querySelector('#message-sender') !== null;
+            const hasEditableArea = document.querySelector('.note-editable[contenteditable="true"]') !== null;
+            const hasTagsButton = document.querySelector('button.edit-button.activity-control') !== null;
+
+            return hasMessageSender && (hasEditableArea || hasTagsButton);
+        }
+
+        function isEmailInEditMode() {
+            // Check if email is currently in edit mode (has visible editable area)
+            const editableArea = document.querySelector('.note-editable[contenteditable="true"]');
+            const saveButton = document.querySelector('button.save-button[data-action="editpersonal"]');
+
+            return editableArea && saveButton;
         }
 
           function extractEmailInfo() {
@@ -196,7 +209,11 @@
                     if (!buttons.saveButton) missingButtons.push('Save button');
                     if (!buttons.editableArea) missingButtons.push('Editable area');
 
-                    MerusCore.ui.showToast(`Could not find: ${missingButtons.join(', ')}. Please make sure you're on an email view.`, 'error', 5000);
+                    if (!buttons.editableArea && !buttons.saveButton && buttons.tagsButton) {
+                        MerusCore.ui.showToast('Please click the "Tags" button first to enter edit mode', 'info', 4000);
+                    } else {
+                        MerusCore.ui.showToast(`Could not find: ${missingButtons.join(', ')}. Please make sure you\'re on an individual email view and click the Tags button.`, 'error', 5000);
+                    }
                     return;
                 }
 
@@ -286,22 +303,34 @@
                 renamerButton = null;
             }
 
+            // Check if email is in edit mode
+            const inEditMode = isEmailInEditMode();
+            const buttonText = inEditMode ? '📧 Rename Email' : '📧 Edit Email First';
+            const buttonStyle = inEditMode ? 'info' : 'warning';
+
             renamerButton = MerusCore.ui.createButton({
-                text: '📧 Rename Email',
+                text: buttonText,
                 position: 'top-right',
-                style: 'info',
+                style: buttonStyle,
                 icon: 'fa-envelope',
-                onClick: MerusCore.observer.debounce(renameEmail, 1000)
+                onClick: MerusCore.observer.debounce(() => {
+                    if (!isEmailInEditMode()) {
+                        MerusCore.ui.showToast('Please click the "Tags" button first to enter edit mode', 'info', 4000);
+                    } else {
+                        renameEmail();
+                    }
+                }, 1000)
             });
 
             document.body.appendChild(renamerButton.element);
             isActive = true;
 
-            console.log('Email Renamer: Initialized');
+            console.log('Email Renamer: Initialized' + (inEditMode ? ' (in edit mode)' : ' (requires Tags button click)'));
 
             // Send message about initialization
             MerusCore.messaging.emit('email-renamer-initialized', {
                 version: '2.0.0',
+                inEditMode: inEditMode,
                 timestamp: Date.now()
             });
         }
@@ -336,15 +365,18 @@
             checkAndInitialize();
         }
 
-        // Use MerusCore Cloudflare-safe observer for SPA navigation
+        // Use MerusCore Cloudflare-safe observer for SPA navigation and edit mode changes
         observer = MerusCore.observer.createSafeObserver(() => {
             if (isActive && !isEmailView()) {
                 cleanupEmailRenamer();
             } else if (!isActive && isEmailView()) {
                 checkAndInitialize();
+            } else if (isActive && isEmailView()) {
+                // Re-initialize to update button state when edit mode changes
+                initEmailRenamer();
             }
         }, {
-            delay: CONFIG.debounceDelay,
+            delay: 2000, // Shorter delay to detect edit mode changes faster
             autoDisconnect: CONFIG.observerTimeout,
             target: document.querySelector('main') || document.body,
             observeOptions: { childList: true, subtree: false }
