@@ -148,8 +148,15 @@
         }
 
         function findButtons() {
-            // Use MerusCore selectors for common elements
-            const tagsButton = document.querySelector('button.edit-button.activity-control');
+            // Use MerusCore selectors for common elements - look for Tags button with various class combinations
+            const tagsButton = document.querySelector('button.edit-button.activity-control') ||
+                              document.querySelector('button.btn.btn-sm.btn-default.edit-button.activity-control') ||
+                              document.querySelector('button:has(.fa-tags)') ||
+                              document.querySelector('button[title*="Tags"]') ||
+                              Array.from(document.querySelectorAll('button')).find(btn =>
+                                  btn.textContent.includes('Tags') && btn.classList.contains('edit-button')
+                              );
+
             const saveButton = document.querySelector('button.save-button[data-action="editpersonal"]');
             const dateInput = document.querySelector('input[name="data[Upload][document_date]"]');
             const editableArea = document.querySelector('.note-editable[contenteditable="true"]');
@@ -172,8 +179,24 @@
                 }
 
                 const buttons = findButtons();
+
+                // Debug information - log what buttons were found
+                console.log('Email Renamer: Button search results:', {
+                    tagsButton: !!buttons.tagsButton,
+                    saveButton: !!buttons.saveButton,
+                    dateInput: !!buttons.dateInput,
+                    editableArea: !!buttons.editableArea,
+                    allEditButtons: document.querySelectorAll('button.edit-button').length,
+                    allActivityButtons: document.querySelectorAll('button.activity-control').length
+                });
+
                 if (!buttons.tagsButton || !buttons.saveButton || !buttons.editableArea) {
-                    MerusCore.ui.showToast('Could not find the necessary edit controls. Please try again.', 'error', 5000);
+                    const missingButtons = [];
+                    if (!buttons.tagsButton) missingButtons.push('Tags button');
+                    if (!buttons.saveButton) missingButtons.push('Save button');
+                    if (!buttons.editableArea) missingButtons.push('Editable area');
+
+                    MerusCore.ui.showToast(`Could not find: ${missingButtons.join(', ')}. Please make sure you're on an email view.`, 'error', 5000);
                     return;
                 }
 
