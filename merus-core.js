@@ -519,12 +519,16 @@
              * Format date with multiple output formats
              */
             format(date, format = 'YYYY.MM.DD') {
-                const d = new Date(date);
+                const d = date instanceof Date ? date : new Date(date);
                 if (isNaN(d.getTime())) return '';
 
                 const year = d.getFullYear();
-                const month = String(d.getMonth() + 1).padStart(2, '0');
-                const day = String(d.getDate()).padStart(2, '0');
+                const month = (d.getMonth() + 1).toString().padStart ?
+                    String(d.getMonth() + 1).padStart(2, '0') :
+                    ('0' + (d.getMonth() + 1)).slice(-2);
+                const day = d.getDate().toString().padStart ?
+                    String(d.getDate()).padStart(2, '0') :
+                    ('0' + d.getDate()).slice(-2);
 
                 switch (format) {
                     case 'MM/DD/YYYY': return `${month}/${day}/${year}`;
@@ -541,18 +545,24 @@
             parse(text) {
                 if (!text || typeof text !== 'string') return null;
 
+                // Helper function for padding
+                const pad = (str, length = 2) => {
+                    str = str.toString();
+                    return str.padStart ? str.padStart(length, '0') : ('0'.repeat(length) + str).slice(-length);
+                };
+
                 // ISO formats: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
                 const isoMatch = text.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
                 if (isoMatch) {
                     const [, year, month, day] = isoMatch;
-                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    return new Date(`${year}-${pad(month)}-${pad(day)}`);
                 }
 
                 // US formats: MM-DD-YYYY, MM/DD/YYYY, MM.DD.YYYY
                 const usMatch = text.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
                 if (usMatch) {
                     const [, month, day, year] = usMatch;
-                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    return new Date(`${year}-${pad(month)}-${pad(day)}`);
                 }
 
                 // Short year formats: MM-DD-YY, MM/DD/YY
@@ -560,7 +570,7 @@
                 if (shortMatch) {
                     const [, month, day, year] = shortMatch;
                     const fullYear = parseInt(year) + 2000;
-                    return new Date(`${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    return new Date(`${fullYear}-${pad(month)}-${pad(day)}`);
                 }
 
                 // No separator: YYYYMMDD, MMDDYYYY
@@ -623,11 +633,10 @@
                 const businessSuffixes = new Set(config.businessSuffixes);
 
                 return text.toLowerCase().trim().replace(/\b(\w+\.?\w*)\b/g, (word, p1) => {
-                    // Preserve exact matches if configured
-                    if (config.preserveOriginal) {
-                        const upper = p1.toUpperCase();
-                        if (acronyms.has(upper)) return upper;
-                    }
+                    const upper = p1.toUpperCase();
+
+                    // Always check for exact acronym matches first
+                    if (acronyms.has(upper)) return upper;
 
                     // Handle acronyms with periods
                     if (p1.includes('.')) {
@@ -636,7 +645,12 @@
                     }
 
                     // Preserve business suffixes
-                    if (businessSuffixes.has(p1.toUpperCase())) return p1.toUpperCase();
+                    if (businessSuffixes.has(upper)) return upper;
+
+                    // Preserve exact matches if configured
+                    if (config.preserveOriginal) {
+                        if (acronyms.has(upper)) return upper;
+                    }
 
                     // Capitalize first letter, preserve rest
                     return p1.charAt(0).toUpperCase() + p1.slice(1);

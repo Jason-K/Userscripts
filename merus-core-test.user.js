@@ -45,6 +45,28 @@
         function test(name, testFn) {
             try {
                 const result = testFn();
+
+                // Handle Promise-based async tests
+                if (result && typeof result.then === 'function') {
+                    result.then(resolvedResult => {
+                        if (resolvedResult) {
+                            console.log(`✅ ${name}`);
+                            results.passed++;
+                            results.tests.push({ name, status: 'PASS' });
+                        } else {
+                            console.log(`❌ ${name}`);
+                            results.failed++;
+                            results.tests.push({ name, status: 'FAIL' });
+                        }
+                    }).catch(error => {
+                        console.error(`❌ ${name} - Error: ${error.message}`);
+                        results.failed++;
+                        results.tests.push({ name, status: 'ERROR', error: error.message });
+                    });
+                    return;
+                }
+
+                // Handle synchronous tests
                 if (result) {
                     console.log(`✅ ${name}`);
                     results.passed++;
@@ -201,20 +223,22 @@
         });
 
         // Test Messaging System
-        test('Messaging Emit/On', (done) => {
-            let received = false;
+        test('Messaging Emit/On', () => {
+            return new Promise((resolve) => {
+                let received = false;
 
-            const unsubscribe = MerusCore.messaging.on('test-event', (event) => {
-                received = true;
-                unsubscribe();
+                const unsubscribe = MerusCore.messaging.on('test-event', (event) => {
+                    received = true;
+                    unsubscribe();
+                });
+
+                MerusCore.messaging.emit('test-event', { test: 'data' });
+
+                // Small delay for event propagation
+                setTimeout(() => {
+                    resolve(received);
+                }, 50);
             });
-
-            MerusCore.messaging.emit('test-event', { test: 'data' });
-
-            // Small delay for event propagation
-            setTimeout(() => {
-                return received;
-            }, 50);
         });
 
         // Test Utility Functions
@@ -245,7 +269,7 @@
         });
 
         // Wait for async tests to complete
-        setTimeout(() => {
+        setTimeout(() => {, 1000
             // Report results
             console.log('\n📊 Test Results:');
             console.log(`✅ Passed: ${results.passed}`);
