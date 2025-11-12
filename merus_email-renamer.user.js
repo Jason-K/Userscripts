@@ -125,37 +125,87 @@
             };
         }
 
+        function extractSenderName(sender) {
+            if (!sender) return '';
+
+            // Use MerusCore text utilities for cleaning
+            let cleanSender = MerusCore.text.stripHTML(sender).trim();
+
+            // Check if sender is just an email address (no name found)
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (emailRegex.test(cleanSender)) {
+                return cleanSender; // Return email address as is
+            }
+
+            // Extract name from common formats like "John Doe <john@example.com>"
+            const nameMatch = cleanSender.match(/^([^<]+)</);
+            if (nameMatch) {
+                return MerusCore.text.normalizeWhitespace(nameMatch[1].trim());
+            }
+
+            return cleanSender;
+        }
+
+        function determineEmailRelationship(subject) {
+            if (!subject) return 'to';
+
+            // Use MerusCore text utilities for subject cleaning
+            const cleanSubject = MerusCore.text.normalizeWhitespace(subject);
+            const subjectLower = cleanSubject.toLowerCase();
+
+            // Check for reply patterns
+            if (subjectLower.startsWith('re:') || subjectLower.startsWith('re ')) {
+                return 'replying to';
+            }
+
+            // Check for forward patterns
+            if (subjectLower.startsWith('fw:') || subjectLower.startsWith('fwd:') ||
+                subjectLower.startsWith('fw ') || subjectLower.startsWith('fwd ')) {
+                return 'forwarded to';
+            }
+
+            // Default to "to" for first message in chain
+            return 'to';
+        }
+
         function generateEmailName(emailInfo) {
             if (!emailInfo) return '';
 
-            const formattedDate = MerusCore.date.format(emailInfo.messageDate, CONFIG.dateFormat);
-            let cleanSubject = emailInfo.subject;
-
-            // Use MerusCore text utilities for truncation
-            if (cleanSubject.length > CONFIG.maxSubjectLength) {
-                cleanSubject = MerusCore.text.truncate(cleanSubject, CONFIG.maxSubjectLength);
+            // Parse message date and format as MM-DD-YY @ HH:MM:SS
+            let messageDate = emailInfo.messageDate;
+            if (typeof messageDate === 'string') {
+                messageDate = MerusCore.date.parse(messageDate) || new Date();
             }
 
-            // Use MerusCore text utilities for sender cleaning
-            let cleanSender = MerusCore.text.stripHTML(emailInfo.sender);
+            const formattedDate = MerusCore.date.format(messageDate, 'MM-DD-YY');
+            const formattedTime = MerusCore.date.format(messageDate, 'HH:mm:ss');
+
+            // Extract sender name
+            const senderName = extractSenderName(emailInfo.sender);
+
+            // Determine email relationship based on subject
+            const relationship = determineEmailRelationship(emailInfo.subject);
 
             // Parse recipients
             const { first, others } = parseRecipients(emailInfo.recipients);
 
-            // Build the formatted name using the specified convention
-            let emailName = `${formattedDate} - email from ${cleanSender}`;
-
+            // Build recipients string
+            let recipientsString = '';
             if (first) {
-                emailName += ` to ${first}`;
+                recipientsString = first;
+                if (others.length > 0) {
+                    recipientsString += ` (and ${others.join(', ')})`;
+                }
             }
 
-            if (others.length > 0) {
-                emailName += ` (and ${others.join(', ')})`;
+            // Build the formatted name using the new convention
+            let emailName = `${formattedDate} @ ${formattedTime} - email from ${senderName} (${relationship}`;
+
+            if (recipientsString) {
+                emailName += ` ${recipientsString}`;
             }
 
-            if (cleanSubject) {
-                emailName += ` re. ${cleanSubject}`;
-            }
+            emailName += ')';
 
             if (emailInfo.caseName) {
                 emailName += ` - ${emailInfo.caseName}`;
@@ -255,27 +305,81 @@
 
                 // Step 3: Update the editable area with the new name
                 updatedEditableArea.focus();
+
+                // Clear existing content and set new name more reliably
+                updatedEditableArea.innerHTML = '';
                 updatedEditableArea.textContent = newName;
 
-                // Trigger input event using MerusCore utilities
-                MerusCore.dom.triggerEvents(updatedEditableArea, ['input']);
+                // Trigger comprehensive events to ensure the change is registered
+                MerusCore.dom.triggerEvents(updatedEditableArea, [
+                    'input', 'change', 'keyup', 'blur', 'focus', 'select'
+                ]);
 
-                // Small delay to ensure the content is registered
-                await MerusCore.utils.sleep(500);
+                // Longer delay to ensure the content is fully registered
+                await MerusCore.utils.sleep(800);
 
-                // Step 4: Click Save button
-                const updatedSaveButton = document.querySelector('button.btn.btn-sm.btn-primary.save-button[data-action="editpersonal"]') ||
-                                       document.querySelector('button.save-button[data-action="editpersonal"]') ||
-                                       Array.from(document.querySelectorAll('button')).find(btn =>
-                                           btn.textContent.includes('Save') && btn.hasAttribute('data-action', 'editpersonal')
-                                       );
-                if (updatedSaveButton) {
+                // Step 4: Enhanced save process with retry logic
+                let saveSuccess = false;
+                let saveAttempts = 0;
+                const maxSaveAttempts = 4;
+
+                while (!saveSuccess && saveAttempts < maxSaveAttempts) {
+                    saveAttempts++;
+
+                    // Find save button again for each attempt
+                    const updatedSaveButton = document.querySelector('button.btn.btn-sm.btn-primary.save-button[data-action="editpersonal"]') ||
+                                           document.querySelector('button.save-button[data-action="editpersonal"]') ||
+                                           Array.from(document.querySelectorAll('button')).find(btn =>
+                                               btn.textContent.includes('Save') && btn.hasAttribute('data-action', 'editpersonal')
+                                           );
+
+                    if (!updatedSaveButton) {
+                        MerusCore.ui.showToast('Save button not found. Please save manually.', 'warning', 5000);
+                        break;
+                    }
+
+                    // Check if save button is disabled
+                    if (updatedSaveButton.disabled) {
+                        console.log('Email Renamer: Save button is disabled, waiting...');
+                        await MerusCore.utils.sleep(500);
+                        continue;
+                    }
+
+                    console.log(`Email Renamer: Save attempt ${saveAttempts}/${maxSaveAttempts}`);
+
+                    // Re-trigger events before save to ensure content is registered
+                    MerusCore.dom.triggerEvents(updatedEditableArea, ['input', 'change']);
+
+                    // Click save button
                     updatedSaveButton.click();
 
-                    // Wait for save to complete
+                    // Wait longer for save to complete
+                    await MerusCore.utils.sleep(1500);
+
+                    // Check if save was successful by looking for the content to stick
                     await MerusCore.utils.sleep(1000);
 
-                    MerusCore.ui.showToast('Email renamed successfully!', 'success', 3000);
+                    // Verify the content was saved by checking if the editable area still contains our text
+                    const currentContent = MerusCore.text.stripHTML(updatedEditableArea.innerHTML).trim();
+                    if (currentContent.includes(newName.substring(0, 20))) { // Check first 20 chars
+                        saveSuccess = true;
+                        console.log('Email Renamer: Save successful on attempt', saveAttempts);
+                    } else {
+                        console.log('Email Renamer: Save attempt failed, content did not stick');
+                        console.log('Expected content:', newName.substring(0, 50));
+                        console.log('Actual content:', currentContent.substring(0, 50));
+
+                        // Re-apply content and try again
+                        updatedEditableArea.focus();
+                        updatedEditableArea.innerHTML = '';
+                        updatedEditableArea.textContent = newName;
+                        MerusCore.dom.triggerEvents(updatedEditableArea, ['input', 'change']);
+                        await MerusCore.utils.sleep(500);
+                    }
+                }
+
+                if (saveSuccess) {
+                    MerusCore.ui.showToast(`Email renamed successfully! (Attempt ${saveAttempts})`, 'success', 3000);
 
                     // Send message to other scripts about the rename
                     MerusCore.messaging.emit('email-renamed', {
@@ -284,11 +388,12 @@
                         sender: emailInfo.sender,
                         recipients: emailInfo.recipients,
                         caseName: emailInfo.caseName,
+                        saveAttempts: saveAttempts,
                         timestamp: Date.now()
                     });
-
                 } else {
-                    MerusCore.ui.showToast('Save button not found after editing. Please save manually.', 'warning', 5000);
+                    MerusCore.ui.showToast(`Failed to save after ${maxSaveAttempts} attempts. Please save manually.`, 'error', 5000);
+                    console.error('Email Renamer: Save failed after all attempts');
                 }
 
             } catch (error) {
