@@ -52,7 +52,11 @@
         function isEmailInEditMode() {
             // Check if email is currently in edit mode (has visible editable area)
             const editableArea = document.querySelector('.note-editable[contenteditable="true"]');
-            const saveButton = document.querySelector('button.save-button[data-action="editpersonal"]');
+            const saveButton = document.querySelector('button.btn.btn-sm.btn-primary.save-button[data-action="editpersonal"]') ||
+                             document.querySelector('button.save-button[data-action="editpersonal"]') ||
+                             Array.from(document.querySelectorAll('button')).find(btn =>
+                                 btn.textContent.includes('Save') && btn.hasAttribute('data-action', 'editpersonal')
+                             );
 
             return editableArea && saveButton;
         }
@@ -170,7 +174,11 @@
                                   btn.textContent.includes('Tags') && btn.classList.contains('edit-button')
                               );
 
-            const saveButton = document.querySelector('button.save-button[data-action="editpersonal"]');
+            const saveButton = document.querySelector('button.btn.btn-sm.btn-primary.save-button[data-action="editpersonal"]') ||
+                             document.querySelector('button.save-button[data-action="editpersonal"]') ||
+                             Array.from(document.querySelectorAll('button')).find(btn =>
+                                 btn.textContent.includes('Save') && btn.hasAttribute('data-action', 'editpersonal')
+                             );
             const dateInput = document.querySelector('input[name="data[Upload][document_date]"]');
             const editableArea = document.querySelector('.note-editable[contenteditable="true"]');
 
@@ -256,7 +264,11 @@
                 await MerusCore.utils.sleep(500);
 
                 // Step 4: Click Save button
-                const updatedSaveButton = document.querySelector('button.save-button[data-action="editpersonal"]');
+                const updatedSaveButton = document.querySelector('button.btn.btn-sm.btn-primary.save-button[data-action="editpersonal"]') ||
+                                       document.querySelector('button.save-button[data-action="editpersonal"]') ||
+                                       Array.from(document.querySelectorAll('button')).find(btn =>
+                                           btn.textContent.includes('Save') && btn.hasAttribute('data-action', 'editpersonal')
+                                       );
                 if (updatedSaveButton) {
                     updatedSaveButton.click();
 
