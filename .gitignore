@@ -3,3 +3,5 @@ node_modules/
 *.log
 *.corrupted
 *.backup
+.env.schema
+env.d.ts

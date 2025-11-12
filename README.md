@@ -15,7 +15,6 @@ Userscripts/
 ├── merus_default-assignee.user.js       # MerusCase Default Assignee & Due Date
 ├── merus_document-renamer.user.js       # MerusCase Smart Renamer v0.3
 ├── merus_downloadPDF.user.js            # MerusCase Quick PDF Download v1.1
-├── merus_QoLscript.user.js              # MerusCase Super Suite v1.2 (All-in-One)
 ├── merus_search-booleans.user.js        # MerusCase Enhanced Boolean Search v2.4
 ├── merus_tab-send4spaces.user.js        # MerusCase Smart Tab v3.0
 ├── merus_tag-calls.user.js              # MerusCase Auto-Tagger v1.0
@@ -47,11 +46,8 @@ Userscripts/
 2. Visit any GitHub page and activate the bootstrap script
 3. Confirm installation of all scripts when prompted
 
-### Option 3: MerusCase Super Suite (Recommended)
-For MerusCase users, install the consolidated script that includes all features:
-```
-https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_QoLscript.user.js
-```
+### Option 3: Individual MerusCase Scripts
+For MerusCase users, install individual scripts based on your needs. See the Scripts Overview below for available options.
 
 ## 📦 Auto-updates
 
@@ -70,7 +66,6 @@ Violentmonkey will automatically check these URLs for updates.
 
 | Script | Version | Description | Key Features |
 |--------|---------|-------------|-------------|
-| **merus_QoLscript.user.js** | v1.2 | All-in-One Super Suite | **Latest Integration:** Combines all MerusCase tools in one optimized script |
 | **merus_default-assignee.user.js** | v1.0 | Default Assignee & Due Date | Auto-sets Sommer Murray as assignee and today's date for new tasks |
 | **merus_document-renamer.user.js** | v0.3 | Smart Document Renamer | **New:** Multiple date formats, improved business name handling, better visibility logic |
 | **merus_search-booleans.user.js** | v2.4 | Enhanced Boolean Search | **Updated:** Ultra-aggressive filtering, improved persistence, navigation handling |
@@ -78,25 +73,7 @@ Violentmonkey will automatically check these URLs for updates.
 | **merus_tab-send4spaces.user.js** | v3.0 | Smart Tab Handler | Converts tabs to 4-space indents in note editor, supports Shift+Tab unindent |
 | **merus_downloadPDF.user.js** | v1.1 | Quick PDF Download | **Enhanced:** Improved title processing, better filename generation |
 
-#### 🆕 MerusCase v1.2 Integration Features:
-- **Unified Deployment**: Single script with all features integrated and optimized
-- **Enhanced Document Renamer**: 
-  - Multiple date format support (YYYY-MM-DD, MM-DD-YYYY, MM-DD-YY, YYYYMMDD, MMDDYY)
-  - Improved business name detection and title case handling
-  - Smart button visibility tied to MerusCase rename button state
-  - Button repositioned to top of screen for better visibility
-- **Advanced PDF Processing**: 
-  - New `processTitle()` function for enhanced title cleanup
-  - Better handling of medical acronyms (QME, AME, PTP, MRI, XR, MMI, etc.)
-  - Automatic .pdf extension handling to prevent duplication
-- **Robust Boolean Search**: 
-  - Complete integration of v2.4 with ultra-aggressive row hiding
-  - Enhanced persistence checker and navigation handling
-  - Better query parsing with improved minus operator support
-- **Complete Auto-Tagger**: Full integration with all tag rules and contact extraction
-- **Fully-Featured Default Assignee**: Complete form observation and SPA navigation support
-
-#### Classic MerusCase Features:
+#### MerusCase Features:
 - **Default Assignee**: Automatically sets Sommer Murray as assignee and today's date for all new tasks
 - **Smart Renaming**: Transforms filenames like `Letter from Dr Smith 01-15-2025` → `2025.01.15 - letter - Dr. Smith`
 - **Boolean Search**: Support for queries like `telephone -email OR fax` with real-time filtering
@@ -205,8 +182,9 @@ References:
 - **Cross-browser Compatibility**: Tested with Violentmonkey and Tampermonkey
 - **Error Handling**: Comprehensive error messages and fallback behaviors
 - **Performance Optimized**: Debounced search, efficient DOM manipulation
+- **Cloudflare Compatible**: Special handling for MerusCase rate limiting to avoid 429 errors
 - **User Feedback**: Toast notifications, visual indicators, debug panels
-- **Integration Testing**: MerusCase Super Suite v1.2 tested for module conflicts and performance
+- **Integration Testing**: Individual MerusCase scripts tested for compatibility and performance
 
 ## 📄 Development Notes
 
@@ -215,22 +193,33 @@ References:
 - Comprehensive error handling and logging
 - Modular design with reusable components
 - Performance-optimized with debouncing and caching
-- **v1.2 Integration**: Unified module initialization and navigation handling
+- **Modular Design**: Individual scripts with independent functionality
+
+### MerusCase Performance Constraints
+**⚠️ Cloudflare Rate Limiting**: MerusCase uses aggressive Cloudflare protection that requires special attention:
+
+- **MutationObserver Limits**: 5+ second throttles, scoped targeting, auto-disconnect
+- **DOM Query Throttling**: Batched queries, cached results, exponential backoff
+- **Event Debouncing**: 300-500ms minimum for all input handlers
+- **Background Processing**: Use `setTimeout` with delays for non-critical tasks
+- **Graceful Degradation**: Scripts continue functioning even when rate limited
+
+All MerusCase scripts are designed to operate within these constraints while maintaining functionality.
 
 ### Recent Updates (January 2025)
-- **MerusCase Super Suite v1.2**: Complete integration of all individual scripts with latest improvements
 - **Document Renamer v0.3**: Multiple date format support, enhanced business handling
 - **PDF Download v1.1**: Improved title processing and extension handling
 - **Boolean Search v2.4**: Ultra-aggressive filtering and better persistence
-- **Auto-Tagger v1.0**: Complete integration with full functionality
+- **Auto-Tagger v1.0**: Full contact extraction and tag rule integration
 - **Smart Tab v3.0**: Enhanced indentation handling
+- **Default Assignee v1.0**: Form observation and SPA navigation support
 
 ### Maintenance
 - Auto-update mechanism for seamless updates
 - Version tracking and changelog management
 - Backward compatibility for existing installations
 - Debug modes for troubleshooting
-- Consolidated deployment reduces maintenance overhead
+- Individual script deployment for targeted functionality
 
 ## ✅ License
 
@@ -238,22 +227,6 @@ MIT unless otherwise noted.
 
 ---
 
-## ✅ Recent Completion (January 2025)
-
-The MerusCase Super Suite v1.2 has been **successfully completed** with all 6 modules fully integrated:
-
-- ✅ **Smart Renamer v0.3**: Fully integrated with enhanced date formats and business name handling
-- ✅ **Quick PDF Download v1.1**: Complete integration with improved title processing
-- ✅ **Enhanced Boolean Search v2.4**: **FULLY INTEGRATED** (ultra-aggressive filtering, complete implementation)
-- ✅ **Smart Tab v3.0**: Fully integrated with enhanced indentation handling
-- ✅ **Auto-Tagger v1.0**: **FULLY INTEGRATED** (complete contact extraction, 50+ tag rules)
-- ✅ **Default Assignee v1.0**: Fully integrated with form observation and SPA navigation
-
-**STATUS: PRODUCTION READY** - The consolidated script uses a modular architecture with intelligent initialization, SPA navigation handling, and conflict-free module integration. All 6 modules are now complete with 2000+ lines of optimized code.
-
----
-
-**Total Scripts**: 14 individual scripts + 1 bootstrap installer + 1 consolidated suite  
-**Latest Version**: MerusCase Super Suite v1.2 (January 2025) - **COMPLETE & PRODUCTION READY**  
-**Status**: All scripts actively maintained and tested. **Consolidated suite FULLY COMPLETED with all 6 modules integrated (2000+ lines).**  
-**Recommendation**: Use MerusCase Super Suite v1.2 for optimal performance and latest features
+**Total Scripts**: 13 individual scripts + 1 bootstrap installer
+**Status**: All scripts actively maintained and tested.
+**Recommendation**: Install individual MerusCase scripts based on your specific needs for optimal performance and functionality.

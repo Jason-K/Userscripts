@@ -1,10 +1,10 @@
-[ 
+[
     "consensus_copy-citations.user.js",
     "merus_default-assignee.user.js",
     "merus_downloadPDF.user.js",
     "merus_document-renamer.user.js",
+    "merus_email-renamer.user.js",
     "merus_search-booleans.user.js",
-    "merus_QoLscript.user.js",
     "merus_tag-calls.user.js",
     "merus_tab-send4spaces.user.js",
     "pubmed_copy-citations.user.js",
