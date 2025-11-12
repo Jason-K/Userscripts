@@ -81,16 +81,64 @@
                     }
                 }
 
-                // Use MerusCore date parsing for message date
-                let messageDate = MerusCore.date.today('YYYY-MM-DD');
-                const dateElements = document.querySelectorAll('[data-merus-type="date"], .date-field, .message-date');
-                for (const element of dateElements) {
-                    const dateValue = element.value || element.textContent;
-                    const parsedDate = MerusCore.date.parse(dateValue);
-                    if (parsedDate) {
-                        messageDate = MerusCore.date.format(parsedDate, 'YYYY-MM-DD');
-                        break;
+                // Use comprehensive date extraction for message date/time
+                let messageDate = null;
+
+                // Try multiple selectors for email date/time information
+                const dateSelectors = [
+                    '[data-merus-type="date"]',
+                    '.date-field',
+                    '.message-date',
+                    '.email-date',
+                    '#message-date',
+                    '.sent-date',
+                    '.timestamp',
+                    '.message-time',
+                    '[data-timestamp]'
+                ];
+
+                for (const selector of dateSelectors) {
+                    const elements = document.querySelectorAll(selector);
+                    for (const element of elements) {
+                        const dateValue = element.value || element.textContent || element.getAttribute('data-timestamp');
+                        if (dateValue) {
+                            const parsedDate = MerusCore.date.parse(dateValue);
+                            if (parsedDate) {
+                                messageDate = parsedDate;
+                                break;
+                            }
+                        }
                     }
+                    if (messageDate) break;
+                }
+
+                // If no date found, try to extract from email header patterns
+                if (!messageDate) {
+                    const pageText = document.body.textContent;
+                    const datePatterns = [
+                        /(\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))/,
+                        /(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}:\d{2})/,
+                        /(\d{1,2}\/\d{1,2}\/\d{2,4})/
+                    ];
+
+                    for (const pattern of datePatterns) {
+                        const match = pageText.match(pattern);
+                        if (match) {
+                            const parsedDate = MerusCore.date.parse(match[1]);
+                            if (parsedDate) {
+                                messageDate = parsedDate;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Fallback to current time if no date found (at least we get the right time)
+                if (!messageDate) {
+                    console.log('Email Renamer: No date found, using current time');
+                    messageDate = new Date();
+                } else {
+                    console.log('Email Renamer: Found date:', messageDate.toString());
                 }
 
                 return {
@@ -171,14 +219,21 @@
         function generateEmailName(emailInfo) {
             if (!emailInfo) return '';
 
-            // Parse message date and format as MM-DD-YY @ HH:MM:SS
+            // Parse message date and format as MM-DD-YY @ HH:mm
             let messageDate = emailInfo.messageDate;
+
+            // Handle different date formats
             if (typeof messageDate === 'string') {
-                messageDate = MerusCore.date.parse(messageDate) || new Date();
+                messageDate = MerusCore.date.parse(messageDate);
+            }
+
+            // Ensure we have a valid Date object
+            if (!messageDate || !(messageDate instanceof Date) || isNaN(messageDate.getTime())) {
+                messageDate = new Date();
             }
 
             const formattedDate = MerusCore.date.format(messageDate, 'MM-DD-YY');
-            const formattedTime = MerusCore.date.format(messageDate, 'HH:mm:ss');
+            const formattedTime = MerusCore.date.format(messageDate, 'HH:mm');
 
             // Extract sender name
             const senderName = extractSenderName(emailInfo.sender);
@@ -199,13 +254,11 @@
             }
 
             // Build the formatted name using the new convention
-            let emailName = `${formattedDate} @ ${formattedTime} - email from ${senderName} (${relationship}`;
+            let emailName = `${formattedDate} @ ${formattedTime} - email from ${senderName} ${relationship}`;
 
             if (recipientsString) {
                 emailName += ` ${recipientsString}`;
             }
-
-            emailName += ')';
 
             if (emailInfo.caseName) {
                 emailName += ` - ${emailInfo.caseName}`;
