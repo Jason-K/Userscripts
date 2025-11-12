@@ -269,7 +269,7 @@
         });
 
         // Wait for async tests to complete
-        setTimeout(() => {, 1000
+        setTimeout(() => {
             // Report results
             console.log('\n📊 Test Results:');
             console.log(`✅ Passed: ${results.passed}`);
