@@ -1,44 +1,35 @@
 // ==UserScript==
 // @name         MerusCase Note Smart Tab
-// @version      3.0.2
+// @version      4.0.0
 // @description  Insert or remove 4-space indents in MerusCase notes with Tab, Shift+Tab, and Backspace. Toggle behavior and nbsp support.
 // @author       Jason K.
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/Jason-K
 // @match        *://*.meruscase.com/*
+// @grant        none
+// @require      https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus-core.js
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_tab-send4spaces.user.js
 // @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_tab-send4spaces.user.js
-// @grant        none
 // ==/UserScript==
 
 (function () {
-  let enabled = true;
-  let useNbsp = false;
+  'use strict';
 
-  const logPrefix = "[MerusTab]";
-  const SPACES = "    ";
-  const NBSP = "\u00A0\u00A0\u00A0\u00A0";
+  // Initialize script using MerusCore
+  const script = MerusCore.createScript({
+    name: 'SmartTab',
+    version: '4.0.0'
+  });
 
-  const toastStyle = `
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
-    background: #333;
-    color: #fff;
-    padding: 6px 10px;
-    font-size: 12px;
-    border-radius: 5px;
-    z-index: 9999;
-    opacity: 0.9;
-  `;
+  // Script configuration
+  const config = {
+    enabled: true,
+    useNbsp: false,
+    SPACES: "    ",
+    NBSP: "\u00A0\u00A0\u00A0\u00A0",
+    logPrefix: "[MerusTab]"
+  };
 
-  function showToast(text) {
-    const toast = document.createElement("div");
-    toast.textContent = text;
-    toast.setAttribute("style", toastStyle);
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
-  }
-
+  // Helper functions using MerusCore utilities
   function isInNoteEditable() {
     const el = document.activeElement;
     return (
@@ -48,72 +39,113 @@
     );
   }
 
-  document.addEventListener("keydown", (e) => {
-    if (!isInNoteEditable()) return;
+  function getStatusMessage() {
+    return `SmartTab ${config.enabled ? "enabled" : "disabled"}`;
+  }
 
-    // ---- TOGGLES ----
-    if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "t") {
-      enabled = !enabled;
-      showToast(`MerusTab ${enabled ? "enabled" : "disabled"}`);
-      return;
-    }
+  function getSpacesMessage() {
+    return `SmartTab using ${config.useNbsp ? "non-breaking spaces" : "regular spaces"}`;
+  }
 
-    if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "n") {
-      useNbsp = !useNbsp;
-      showToast(`MerusTab using ${useNbsp ? "non-breaking spaces" : "regular spaces"}`);
-      return;
-    }
+  // Initialize script with MerusCore
+  script.init(() => {
+    if (!MerusCore.utils.isMerusCase()) return;
 
-    if (!enabled) return;
+    // Create status indicator button
+    const statusButton = MerusCore.ui.createButton({
+      text: '🔧 SmartTab',
+      position: 'top-left',
+      style: 'info',
+      onClick: () => {
+        config.enabled = !config.enabled;
+        statusButton.setText(`🔧 SmartTab ${config.enabled ? 'ON' : 'OFF'}`);
+        MerusCore.ui.showToast(getStatusMessage(), config.enabled ? 'success' : 'warning', 2000);
+      }
+    });
+
+    document.body.appendChild(statusButton.element);
+
+    // Add cleanup
+    script.addCleanup(() => {
+      statusButton.remove();
+    });
+
+    // Set up keyboard event listener
+    const keydownHandler = (e) => {
+      if (!isInNoteEditable()) return;
+
+      // ---- TOGGLES ----
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "t") {
+        config.enabled = !config.enabled;
+        statusButton.setText(`🔧 SmartTab ${config.enabled ? 'ON' : 'OFF'}`);
+        MerusCore.ui.showToast(getStatusMessage(), config.enabled ? 'success' : 'warning', 2000);
+        return;
+      }
+
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "n") {
+        config.useNbsp = !config.useNbsp;
+        MerusCore.ui.showToast(getSpacesMessage(), 'info', 2000);
+        return;
+      }
+
+      if (!config.enabled) return;
 
     const sel = window.getSelection();
-    if (!sel.rangeCount) return;
+      if (!sel.rangeCount) return;
 
-    const range = sel.getRangeAt(0);
-    const content = useNbsp ? NBSP : SPACES;
+      const range = sel.getRangeAt(0);
+      const content = config.useNbsp ? config.NBSP : config.SPACES;
 
-    // ---- BACKSPACE: delete 4 spaces if behind caret ----
-    if (e.key === "Backspace" && sel.isCollapsed) {
-      const node = sel.anchorNode;
-      const offset = sel.anchorOffset;
+      // ---- BACKSPACE: delete 4 spaces if behind caret ----
+      if (e.key === "Backspace" && sel.isCollapsed) {
+        const node = sel.anchorNode;
+        const offset = sel.anchorOffset;
 
-      if (node && node.nodeType === Node.TEXT_NODE && offset >= 4) {
-        const preceding = node.textContent.slice(offset - 4, offset);
-        if (preceding === content) {
-          e.preventDefault();
-          node.textContent =
-            node.textContent.slice(0, offset - 4) + node.textContent.slice(offset);
-          const newRange = document.createRange();
-          newRange.setStart(node, offset - 4);
-          newRange.setEnd(node, offset - 4);
-          sel.removeAllRanges();
-          sel.addRange(newRange);
-          return;
+        if (node && node.nodeType === Node.TEXT_NODE && offset >= 4) {
+          const preceding = node.textContent.slice(offset - 4, offset);
+          if (preceding === content) {
+            e.preventDefault();
+            node.textContent =
+              node.textContent.slice(0, offset - 4) + node.textContent.slice(offset);
+            const newRange = document.createRange();
+            newRange.setStart(node, offset - 4);
+            newRange.setEnd(node, offset - 4);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+            return;
+          }
         }
       }
-    }
 
-    // ---- TAB / SHIFT+TAB ----
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const selectedText = sel.toString();
+      // ---- TAB / SHIFT+TAB ----
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const selectedText = sel.toString();
 
-      if (selectedText.includes("\n")) {
-        if (e.shiftKey) {
-          unindentMultipleLines(sel, content);
+        if (selectedText.includes("\n")) {
+          if (e.shiftKey) {
+            unindentMultipleLines(sel, content);
+          } else {
+            indentMultipleLines(sel, content);
+          }
         } else {
-          indentMultipleLines(sel, content);
-        }
-      } else {
-        if (e.shiftKey) {
-          tryUnindentInline(range, content);
-        } else {
-          insertAtCaret(range, content);
+          if (e.shiftKey) {
+            tryUnindentInline(range, content);
+          } else {
+            insertAtCaret(range, content);
+          }
         }
       }
-    }
+    };
+
+    // Add event listener with cleanup
+    document.addEventListener("keydown", keydownHandler);
+    script.addCleanup(() => {
+      document.removeEventListener("keydown", keydownHandler);
+    });
   });
 
+  // Text manipulation functions (kept from original with minor improvements)
   function insertAtCaret(range, content) {
     range.deleteContents();
     const node = document.createTextNode(content);
