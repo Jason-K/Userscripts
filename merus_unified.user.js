@@ -14,6 +14,17 @@
 (function() {
     'use strict';
 
+    // Fallback for GM_addStyle if not provided by the userscript manager (e.g. Violentmonkey/Chrome extensions environment)
+    if (typeof GM_addStyle !== 'function') {
+        window.GM_addStyle = function(css) {
+            const style = document.createElement('style');
+            style.textContent = css;
+            document.head.appendChild(style);
+            return style;
+        };
+        console.log('ℹ️ GM_addStyle not found; using inline fallback implementation');
+    }
+
     console.log('🚀 MerusCase Unified Utilities v3.0.0 initializing...');
 
     // ============================================================================
