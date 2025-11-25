@@ -5,3 +5,4 @@ node_modules/
 *.backup
 .env.schema
 env.d.ts
+*.md
