@@ -145,5 +145,5 @@ You should now experience:
 
 ---
 
-**Status**: ✅ Complete and ready to use  
+**Status**: ✅ Complete and ready to use
 **Date**: November 25, 2025

@@ -188,6 +188,6 @@ You'll know it's working when:
 
 ---
 
-**Version**: 3.0.0  
-**Last Updated**: November 25, 2025  
+**Version**: 3.0.0
+**Last Updated**: November 25, 2025
 **Author**: Jason Knox

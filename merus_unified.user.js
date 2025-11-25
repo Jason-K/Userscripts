@@ -482,11 +482,16 @@
             return el ? el.textContent.trim() : '';
         },
 
-        buildAntinoteURL(path, content, title) {
-            const base = 'https://antinote.io';
-            const params = new URLSearchParams({ content });
-            if (title) params.append('title', title);
-            return `${base}${path}?${params.toString()}`;
+        buildAntinoteURL(action, content, title) {
+            // Use Antinote custom URL scheme instead of https endpoints
+            // createNote: antinote://x-callback-url/createNote?content=...
+            // appendToCurrent: antinote://x-callback-url/appendToCurrent?content=...
+            const base = 'antinote://x-callback-url';
+            const params = new URLSearchParams();
+            // Do not pre-encode; URLSearchParams handles encoding safely
+            params.set('content', content);
+            if (title) params.set('title', title);
+            return `${base}/${action}?${params.toString()}`;
         },
 
         launch(url) {
@@ -514,7 +519,7 @@
             let content = `# ${date}\n\n## ISSUE\n\n---\n\n`;
             if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
 
-            const url = this.buildAntinoteURL('/create', content, this.config.USE_TITLE ? client : null);
+            const url = this.buildAntinoteURL('createNote', content, this.config.USE_TITLE ? client : null);
             this.launch(url);
         },
 
@@ -526,7 +531,7 @@
             let content = `---\n\n## ${date} ${time}\n\n`;
             if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
 
-            const url = this.buildAntinoteURL('/append', content);
+            const url = this.buildAntinoteURL('appendToCurrent', content);
             this.launch(url);
         },
 
