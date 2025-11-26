@@ -461,6 +461,20 @@
             USE_TITLE: true,
             REENTRY_MS: 1500
         },
+        showToast(message) {
+            // Lightweight, self-contained toast (no observers, minimal DOM impact)
+            const toast = document.createElement('div');
+            toast.textContent = message;
+            toast.style.cssText = [
+                'position:fixed','bottom:14px','right:14px','z-index:999999',
+                'background:rgba(30,30,30,0.95)','color:#fff','padding:10px 12px',
+                'border-radius:10px','font:12px/1.2 -apple-system,system-ui,Segoe UI,Roboto',
+                'box-shadow:0 6px 20px rgba(0,0,0,.25)','opacity:0','transition:opacity .2s'
+            ].join(';');
+            document.body.appendChild(toast);
+            requestAnimationFrame(() => { toast.style.opacity = '1'; });
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 200); }, 2500);
+        },
 
         lastLaunchAt: 0,
         launching: false,
@@ -502,11 +516,58 @@
             this.launching = true;
             this.lastLaunchAt = now;
 
-            const a = document.createElement('a');
-            a.href = url;
-            a.target = '_blank';
-            a.rel = 'noopener noreferrer';
-            a.click();
+            // Prefer direct navigation for Safari to custom URL schemes
+            const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+            let opened = false;
+
+            try {
+                if (isSafari) {
+                    // Use location.assign for custom schemes with a user gesture
+                    window.location.assign(url);
+                    opened = true;
+                } else {
+                    // Other browsers: try anchor click first
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    opened = true;
+                }
+            } catch (e) {
+                opened = false;
+            }
+
+            // Fallback: try an invisible iframe (some Safari versions allow this)
+            if (!opened) {
+                try {
+                    const iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    iframe.src = url;
+                    document.body.appendChild(iframe);
+                    setTimeout(() => iframe.remove(), 2000);
+                    opened = true;
+                } catch (e) {
+                    opened = false;
+                }
+            }
+
+            // Final fallback: copy URL to clipboard and notify user
+            if (!opened) {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(() => {
+                        this.showToast('Antinote URL copied. Tap to open Antinote.');
+                        console.warn('Antinote URL copied to clipboard. Tap it to open:', url);
+                    }).catch(() => {
+                        this.showToast('Unable to open. Please paste URL manually.');
+                        console.warn('Unable to open Antinote URL. Please copy/paste:', url);
+                    });
+                } else {
+                    this.showToast('Unable to open. Please copy/paste the URL.');
+                    console.warn('Unable to open Antinote URL. Please copy/paste:', url);
+                }
+            }
 
             setTimeout(() => { this.launching = false; }, 1000);
         },
