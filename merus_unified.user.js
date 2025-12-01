@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.0.3
+// @version      3.0.4
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, and Antinote Integration
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -481,14 +481,28 @@
 
         getClientFirstLast() {
             const el = document.querySelector('#lpClientName span.pretty-name-span');
-            if (!el) return 'Unknown Client';
+            if (!el) {
+                console.warn('❌ Could not find client name element');
+                return null; // Return null instead of 'Unknown Client' so we can handle it differently
+            }
+
             const raw = (el.getAttribute('title') || el.textContent || '').trim();
+            console.log('📋 Raw client info:', raw);
+
             const namePart = raw.split(' v. ')[0].trim();
+            console.log('📋 Name part (before v.):', namePart);
+
             const parts = namePart.split(',');
-            if (parts.length < 2) return namePart;
+            if (parts.length < 2) {
+                console.log('📋 Single-part name (no comma):', namePart);
+                return namePart;
+            }
+
             const last = parts[0].trim();
             const firstM = parts.slice(1).join(' ').trim();
-            return `${firstM} ${last}`.trim();
+            const fullName = `${firstM} ${last}`.trim();
+            console.log('📋 Formatted name:', fullName);
+            return fullName;
         },
 
         getActiveDocument() {
@@ -579,12 +593,19 @@
             const date = Utils.formatDate(new Date(), 'MM/DD/YY');
             const activeDoc = this.getActiveDocument();
 
+            console.log('📝 Client extracted:', client);
+            console.log('📝 USE_TITLE config:', this.config.USE_TITLE);
+            console.log('📝 Active document:', activeDoc);
+
             let content = `# ${date}\n\n## ISSUE\n\n---\n\n`;
             if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
 
-            const url = this.buildAntinoteURL('createNote', content, this.config.USE_TITLE ? client : null);
-            console.log('📝 Creating note for client:', client);
-            console.log('📝 URL:', url);
+            // Only pass title if we have a valid client name
+            const title = (this.config.USE_TITLE && client) ? client : null;
+            console.log('📝 Title being passed:', title);
+
+            const url = this.buildAntinoteURL('createNote', content, title);
+            console.log('📝 Final URL:', url);
             this.launch(url);
         },
 
