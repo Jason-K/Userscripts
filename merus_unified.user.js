@@ -501,11 +501,13 @@
             // createNote: antinote://x-callback-url/createNote?content=...
             // appendToCurrent: antinote://x-callback-url/appendToCurrent?content=...
             const base = 'antinote://x-callback-url';
-            const params = new URLSearchParams();
-            // Do not pre-encode; URLSearchParams handles encoding safely
-            params.set('content', content);
-            if (title) params.set('title', title);
-            return `${base}/${action}?${params.toString()}`;
+
+            // Use encodeURIComponent directly to avoid URLSearchParams' + encoding for spaces
+            let url = `${base}/${action}?content=${encodeURIComponent(content)}`;
+            if (title) {
+                url += `&title=${encodeURIComponent(title)}`;
+            }
+            return url;
         },
 
         launch(url) {
@@ -581,6 +583,8 @@
             if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
 
             const url = this.buildAntinoteURL('createNote', content, this.config.USE_TITLE ? client : null);
+            console.log('📝 Creating note for client:', client);
+            console.log('📝 URL:', url);
             this.launch(url);
         },
 
