@@ -597,7 +597,9 @@
             console.log('📝 USE_TITLE config:', this.config.USE_TITLE);
             console.log('📝 Active document:', activeDoc);
 
-            let content = `# ${date}\n\n## ISSUE\n\n---\n\n`;
+            // Fallback: embed client name directly in content title line
+            const header = client ? `# ${client} — ${date}` : `# ${date}`;
+            let content = `${header}\n\n## ISSUE\n\n---\n\n`;
             if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
 
             // Only pass title if we have a valid client name
@@ -613,8 +615,11 @@
             const date = Utils.formatDate(new Date(), 'MM/DD/YY');
             const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
             const activeDoc = this.getActiveDocument();
+            const client = this.getClientFirstLast();
 
-            let content = `---\n\n## ${date} ${time}\n\n`;
+            // Include client name inline for context
+            const subHeader = client ? `## ${date} ${time} — ${client}` : `## ${date} ${time}`;
+            let content = `---\n\n${subHeader}\n\n`;
             if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
 
             const url = this.buildAntinoteURL('appendToCurrent', content);
