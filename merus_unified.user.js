@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.2.7
+// @version      3.2.8
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -805,6 +805,16 @@
                 return el ? el.textContent.trim() : '';
             },
 
+            isEmailView() {
+                return document.querySelector('#message-sender') !== null;
+            },
+
+            getEmailInfo() {
+                const sentDate = document.querySelector('#merus-message-sent-date')?.textContent.trim() || '';
+                const subject = document.querySelector('.panel-title')?.textContent.trim() || '';
+                return { sentDate, subject };
+            },
+
             buildAntinoteURL(action, content, title) {
                 const base = 'antinote://x-callback-url';
                 let url = `${base}/${action}?content=${encodeURIComponent(content)}`;
@@ -873,15 +883,22 @@
             createNote() {
                 const client = this.getClientFirstLast();
                 const date = Utils.formatDate(new Date(), 'MM/DD/YY');
-                const activeDoc = this.getActiveDocument();
-                const pageUrl = window.location.href;
 
                 const header = client ? `# ${client} — ${date}` : `# ${date}`;
                 let content = `${header}\n\n## ISSUE\n\n---\n\n`;
-                if (activeDoc) {
-                    content += `**Active Document:** ${activeDoc} ( ${pageUrl} )\n\n`;
+
+                // Check if we're viewing an email
+                if (this.isEmailView()) {
+                    const { sentDate, subject } = this.getEmailInfo();
+                    content += `**Email sent:** ${sentDate}\n**Subject:** ${subject}\n\n`;
                 } else {
-                    content += `**Link:** ( ${pageUrl} )\n\n`;
+                    const activeDoc = this.getActiveDocument();
+                    const pageUrl = window.location.href;
+                    if (activeDoc) {
+                        content += `**Active Document:** ${activeDoc} ( ${pageUrl} )\n\n`;
+                    } else {
+                        content += `**Link:** ( ${pageUrl} )\n\n`;
+                    }
                 }
 
                 const title = (this.config.USE_TITLE && client) ? client : null;
@@ -892,16 +909,23 @@
             appendToCurrent() {
                 const date = Utils.formatDate(new Date(), 'MM/DD/YY');
                 const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                const activeDoc = this.getActiveDocument();
                 const client = this.getClientFirstLast();
-                const pageUrl = window.location.href;
 
                 const subHeader = client ? `## ${date} ${time} — ${client}` : `## ${date} ${time}`;
                 let content = `---\n\n${subHeader}\n\n`;
-                if (activeDoc) {
-                    content += `**Active Document:** ${activeDoc} ( ${pageUrl} )\n\n`;
+
+                // Check if we're viewing an email
+                if (this.isEmailView()) {
+                    const { sentDate, subject } = this.getEmailInfo();
+                    content += `**Email sent:** ${sentDate}\n**Subject:** ${subject}\n\n`;
                 } else {
-                    content += `**Link:** ( ${pageUrl} )\n\n`;
+                    const activeDoc = this.getActiveDocument();
+                    const pageUrl = window.location.href;
+                    if (activeDoc) {
+                        content += `**Active Document:** ${activeDoc} ( ${pageUrl} )\n\n`;
+                    } else {
+                        content += `**Link:** ( ${pageUrl} )\n\n`;
+                    }
                 }
 
                 const url = this.buildAntinoteURL('appendToCurrent', content);
