@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.2
+// @version      3.3.3
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -677,8 +677,8 @@
             extractEmailInfo() {
                 const sender = document.querySelector('#message-sender')?.textContent.trim() || '';
                 const recipient = document.querySelector('#message-recipient')?.textContent.trim() || '';
-                // Extract description from panel-title (the email header)
-                const description = document.querySelector('.panel.panel-default.messages-compose .panel-title')?.textContent.trim() || '';
+                // Extract description from note-editable content
+                const description = document.querySelector('.note-editable.panel-body')?.textContent.trim() || '';
                 const dateEl = document.querySelector('#merus-message-sent-date');
                 const date = dateEl ? Utils.parseDate(dateEl.textContent) : new Date();
 
