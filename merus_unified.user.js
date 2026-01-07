@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.5
+// @version      3.3.6
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -676,13 +676,39 @@
 
             extractEmailInfo() {
                 const sender = document.querySelector('#message-sender')?.textContent.trim() || '';
-                const recipient = document.querySelector('#message-recipient')?.textContent.trim() || '';
+                const recipientText = document.querySelector('#message-recipient')?.textContent.trim() || '';
                 // Extract description from note-editable content
                 const description = document.querySelector('.note-editable.panel-body')?.textContent.trim() || '';
                 const dateEl = document.querySelector('#merus-message-sent-date');
                 const date = dateEl ? Utils.parseDate(dateEl.textContent) : new Date();
 
-                return { sender, recipient, description, date };
+                return { sender, recipientText, description, date };
+            },
+
+            extractRecipientNames(recipientText) {
+                if (!recipientText) return null;
+
+                // Split by comma and process each recipient
+                const recipients = recipientText.split(',').map(r => r.trim());
+                const contactRecipients = [];
+
+                for (const recipient of recipients) {
+                    // Match "Name <email@domain.com>" format
+                    const match = recipient.match(/^(.+?)\s*<[^>]+>$/);
+                    if (match) {
+                        contactRecipients.push(match[1].trim());
+                    }
+                }
+
+                // Return null if no contact recipients found
+                if (contactRecipients.length === 0) return null;
+
+                // Return first recipient with "et al" if there are more
+                if (contactRecipients.length === 1) {
+                    return contactRecipients[0];
+                } else {
+                    return `${contactRecipients[0]} et al`;
+                }
             },
 
             generateEmailName(info) {
@@ -699,9 +725,13 @@
                     senderName = info.sender.split('<')[0].trim();
                 }
 
+                // Extract recipient names (only those with contact info)
+                const recipientNames = this.extractRecipientNames(info.recipientText);
+                const recipientPart = recipientNames ? ` to ${recipientNames}` : '';
+
                 const descShort = info.description.substring(0, 50).trim();
 
-                return `${dateStr} at ${timeStr} - email from ${senderName} - ${descShort}`;
+                return `${dateStr} at ${timeStr} - email from ${senderName}${recipientPart} - ${descShort}`;
             },
 
             async renameEmail() {
