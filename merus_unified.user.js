@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.2.8
+// @version      3.2.9
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -883,6 +883,7 @@
             createNote() {
                 const client = this.getClientFirstLast();
                 const date = Utils.formatDate(new Date(), 'MM/DD/YY');
+                const pageUrl = window.location.href;
 
                 const header = client ? `# ${client} — ${date}` : `# ${date}`;
                 let content = `${header}\n\n## ISSUE\n\n---\n\n`;
@@ -890,12 +891,11 @@
                 // Check if we're viewing an email
                 if (this.isEmailView()) {
                     const { sentDate, subject } = this.getEmailInfo();
-                    content += `**Email sent:** ${sentDate}\n**Subject:** ${subject}\n\n`;
+                    content += `**Sent:** ${sentDate}\n**Subject:** ${subject}\n**Link:** ${pageUrl}\n\n`;
                 } else {
                     const activeDoc = this.getActiveDocument();
-                    const pageUrl = window.location.href;
                     if (activeDoc) {
-                        content += `**Active Document:** ${activeDoc} ( ${pageUrl} )\n\n`;
+                        content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl} \n\n`;
                     } else {
                         content += `**Link:** ( ${pageUrl} )\n\n`;
                     }
@@ -910,6 +910,7 @@
                 const date = Utils.formatDate(new Date(), 'MM/DD/YY');
                 const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                 const client = this.getClientFirstLast();
+                const pageUrl = window.location.href;
 
                 const subHeader = client ? `## ${date} ${time} — ${client}` : `## ${date} ${time}`;
                 let content = `---\n\n${subHeader}\n\n`;
@@ -917,12 +918,11 @@
                 // Check if we're viewing an email
                 if (this.isEmailView()) {
                     const { sentDate, subject } = this.getEmailInfo();
-                    content += `**Email sent:** ${sentDate}\n**Subject:** ${subject}\n\n`;
+                    content += `**Sent:** ${sentDate}\n**Subject:** ${subject}\n**Link:** ${pageUrl}\n\n`;
                 } else {
                     const activeDoc = this.getActiveDocument();
-                    const pageUrl = window.location.href;
                     if (activeDoc) {
-                        content += `**Active Document:** ${activeDoc} ( ${pageUrl} )\n\n`;
+                        content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl}\n\n`;
                     } else {
                         content += `**Link:** ( ${pageUrl} )\n\n`;
                     }
