@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.4
+// @version      3.3.5
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -687,10 +687,21 @@
 
             generateEmailName(info) {
                 const dateStr = Utils.formatDate(info.date, 'YYYY.MM.DD');
-                const senderName = info.sender.split('@')[0].replace(/[._]/g, ' ');
+                const timeStr = info.date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                // Extract sender name from "First Last <email@domain.com>" format
+                let senderName = info.sender;
+                const angleMatch = info.sender.match(/^(.+?)\s*<[^>]+>$/);
+                if (angleMatch) {
+                    senderName = angleMatch[1].trim();
+                } else {
+                    // Fallback: if no angle brackets, extract name before @ if it exists
+                    senderName = info.sender.split('<')[0].trim();
+                }
+
                 const descShort = info.description.substring(0, 50).trim();
 
-                return `${dateStr} - Email - ${senderName} - ${descShort}`;
+                return `${dateStr} at ${timeStr} - email from ${senderName} - ${descShort}`;
             },
 
             async renameEmail() {
