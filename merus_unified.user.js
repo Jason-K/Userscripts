@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.2.5
+// @version      3.2.6
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -629,28 +629,29 @@
 
                 // Listen for clicks on rename button
                 document.addEventListener('click', (event) => {
-                    const btn = event.target.closest('a.rename-document');
+                    const btn = event.target.closest('button.rename-button');
+
                     if (btn) {
                         console.log('🔍 Rename button clicked, waiting for dialog...');
                         isRenaming = true;
+
                         setTimeout(() => {
                             this.handleRename();
-                            isRenaming = false;
+                            setTimeout(() => {
+                                isRenaming = false;
+                            }, 200);
                         }, 500);
                     }
                 }, true);
 
-                // Also watch for the rename dialog to appear via MutationObserver
-                // Only trigger if we just clicked the rename button
+                // Watch for the input field appearing
                 const observer = new MutationObserver((mutations) => {
-                    if (!isRenaming) return;
-
                     for (const mutation of mutations) {
                         for (const node of mutation.addedNodes) {
                             if (node.nodeType === 1) {
                                 const input = node.querySelector?.('input[name="data[Upload][description]"]');
-                                if (input) {
-                                    console.log('🔍 Rename dialog detected via observer');
+                                if (input && isRenaming) {
+                                    console.log('🔍 Rename input detected via observer');
                                     setTimeout(() => this.handleRename(), 100);
                                 }
                             }
