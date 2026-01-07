@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.2.1
+// @version      3.2.2
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -96,25 +96,34 @@
             };
 
             XMLHttpRequest.prototype.send = function(...args) {
-                if (self.shouldBlock(this._throttleUrl)) {
-                    const xhr = this;
-                    setTimeout(() => {
-                        // Simulate a 429 response
-                        try {
-                            Object.defineProperty(xhr, 'status', { value: 429, configurable: true });
-                            Object.defineProperty(xhr, 'statusText', { value: 'Too Many Requests (Throttled by Userscript)', configurable: true });
-                            Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true });
-                            Object.defineProperty(xhr, 'responseText', { value: '{"error":"Rate limited by userscript"}', configurable: true });
-                        } catch (e) {
-                            // Property definition may fail on some browsers
-                        }
-                        xhr.dispatchEvent(new Event('readystatechange'));
-                        xhr.dispatchEvent(new Event('error'));
-                        xhr.dispatchEvent(new Event('loadend'));
-                    }, 0);
-                    return;
+                try {
+                    if (self.shouldBlock(this._throttleUrl)) {
+                        const xhr = this;
+                        setTimeout(() => {
+                            // Simulate a 429 response
+                            try {
+                                Object.defineProperty(xhr, 'status', { value: 429, configurable: true });
+                                Object.defineProperty(xhr, 'statusText', { value: 'Too Many Requests (Throttled by Userscript)', configurable: true });
+                                Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true });
+                                Object.defineProperty(xhr, 'responseText', { value: '{"error":"Rate limited by userscript"}', configurable: true });
+                            } catch (e) {
+                                // Property definition may fail on some browsers
+                            }
+                            try {
+                                xhr.dispatchEvent(new Event('readystatechange'));
+                                xhr.dispatchEvent(new Event('error'));
+                                xhr.dispatchEvent(new Event('loadend'));
+                            } catch (e) {
+                                // Event dispatch may fail
+                            }
+                        }, 0);
+                        return;
+                    }
+                    return originalXHRSend.apply(this, args);
+                } catch (e) {
+                    console.warn('Error in XHR interception:', e);
+                    return originalXHRSend.apply(this, args);
                 }
-                return originalXHRSend.apply(this, args);
             };
 
             // ─────────────────────────────────────────────────────────────────
@@ -507,6 +516,9 @@
                     const link = event.target.closest('a[aria-label="Download Document"]');
                     if (!link) return;
 
+                    // Only intercept left-click (button 0) and middle-click (button 1). Allow right-click through.
+                    if (event.button !== 0 && event.button !== 1) return;
+
                     event.preventDefault();
                     const filename = this.runFilenameLogic();
 
@@ -517,12 +529,15 @@
                         console.warn('Could not copy filename:', err);
                     }
 
-                    const href = link.getAttribute('href');
-                    if (href) {
-                        const a = document.createElement('a');
-                        a.href = href;
-                        a.download = filename + '.pdf';
-                        a.click();
+                    // For left-click only, trigger the download
+                    if (event.button === 0) {
+                        const href = link.getAttribute('href');
+                        if (href) {
+                            const a = document.createElement('a');
+                            a.href = href;
+                            a.download = filename + '.pdf';
+                            a.click();
+                        }
                     }
                 });
 
@@ -767,10 +782,12 @@
                 const client = this.getClientFirstLast();
                 const date = Utils.formatDate(new Date(), 'MM/DD/YY');
                 const activeDoc = this.getActiveDocument();
+                const pageUrl = window.location.href;
 
                 const header = client ? `# ${client} — ${date}` : `# ${date}`;
                 let content = `${header}\n\n## ISSUE\n\n---\n\n`;
                 if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
+                content += `[${activeDoc || 'Link'}](${pageUrl})\n\n`;
 
                 const title = (this.config.USE_TITLE && client) ? client : null;
                 const url = this.buildAntinoteURL('createNote', content, title);
@@ -782,10 +799,12 @@
                 const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                 const activeDoc = this.getActiveDocument();
                 const client = this.getClientFirstLast();
+                const pageUrl = window.location.href;
 
                 const subHeader = client ? `## ${date} ${time} — ${client}` : `## ${date} ${time}`;
                 let content = `---\n\n${subHeader}\n\n`;
                 if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
+                content += `[${activeDoc || 'Link'}](${pageUrl})\n\n`;
 
                 const url = this.buildAntinoteURL('appendToCurrent', content);
                 this.launch(url);
