@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.1
+// @version      3.3.2
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -677,19 +677,20 @@
             extractEmailInfo() {
                 const sender = document.querySelector('#message-sender')?.textContent.trim() || '';
                 const recipient = document.querySelector('#message-recipient')?.textContent.trim() || '';
-                const subject = document.querySelector('.note-editable')?.textContent.trim() || '';
-                const dateEl = document.querySelector('.activity-date');
+                // Extract description from panel-title (the email header)
+                const description = document.querySelector('.panel.panel-default.messages-compose .panel-title')?.textContent.trim() || '';
+                const dateEl = document.querySelector('#merus-message-sent-date');
                 const date = dateEl ? Utils.parseDate(dateEl.textContent) : new Date();
 
-                return { sender, recipient, subject, date };
+                return { sender, recipient, description, date };
             },
 
             generateEmailName(info) {
                 const dateStr = Utils.formatDate(info.date, 'YYYY.MM.DD');
                 const senderName = info.sender.split('@')[0].replace(/[._]/g, ' ');
-                const subjectShort = info.subject.substring(0, 50).trim();
+                const descShort = info.description.substring(0, 50).trim();
 
-                return `${dateStr} - Email - ${senderName} - ${subjectShort}`;
+                return `${dateStr} - Email - ${senderName} - ${descShort}`;
             },
 
             async renameEmail() {
