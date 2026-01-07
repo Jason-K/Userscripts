@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3
+// @version      3.3.1
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -895,7 +895,7 @@
                 } else {
                     const activeDoc = this.getActiveDocument();
                     if (activeDoc) {
-                        content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl} \n\n`;
+                        content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl}\n\n`;
                     } else {
                         content += `**Link:** ( ${pageUrl} )\n\n`;
                     }
