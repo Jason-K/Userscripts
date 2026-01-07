@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.6
+// @version      3.3.7
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -743,15 +743,44 @@
                 const info = this.extractEmailInfo();
                 const newName = this.generateEmailName(info);
 
-                // Emails use the note-editable panel-body element directly
+                // Extract sender name for the document_author field
+                let senderName = info.sender;
+                const angleMatch = info.sender.match(/^(.+?)\s*<[^>]+>$/);
+                if (angleMatch) {
+                    senderName = angleMatch[1].trim();
+                }
+
+                // Format date for document_date field (MM/DD/YYYY)
+                const dateStr = Utils.formatDate(info.date, 'MM/DD/YYYY');
+
+                // Populate note-editable (activity description)
                 const noteEditable = document.querySelector('.note-editable.panel-body');
                 if (noteEditable) {
                     noteEditable.textContent = newName;
                     noteEditable.dispatchEvent(new Event('input', { bubbles: true }));
                     noteEditable.dispatchEvent(new Event('change', { bubbles: true }));
-                    console.log('✓ Email renamed:', newName);
+                }
+
+                // Populate document_date field
+                const docDateInput = document.querySelector('input[name="data[Upload][document_date]"]');
+                if (docDateInput) {
+                    docDateInput.value = dateStr;
+                    docDateInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    docDateInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                // Populate document_author field
+                const docAuthorInput = document.querySelector('input[name="data[Upload][document_author]"]');
+                if (docAuthorInput) {
+                    docAuthorInput.value = senderName;
+                    docAuthorInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    docAuthorInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                if (noteEditable || docDateInput || docAuthorInput) {
+                    console.log('✓ Email renamed and metadata populated:', { newName, date: dateStr, author: senderName });
                 } else {
-                    console.log('❌ Email renamer: Note-editable element not found');
+                    console.log('❌ Email renamer: Required form elements not found');
                 }
             },
 
