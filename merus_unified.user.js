@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.2.3
+// @version      3.2.4
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -553,17 +553,37 @@
             ACRONYMS: new Set(['PT', 'MD', 'QME', 'AME', 'UR', 'EMG', 'NCV', 'MRI', 'PTP', 'TTD', 'PPD', 'C&R', 'MSA', 'XR']),
 
             transform(stem) {
+                // Strip file extension if present
+                stem = stem.replace(/\.(pdf|doc|docx|txt|jpg|png|jpeg)$/i, '');
+
+                // Extract and convert date
                 const dateMatch = stem.match(/(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})/);
                 let date = '';
                 if (dateMatch) {
-                    date = this.extractDate(dateMatch[1]);
-                    stem = stem.replace(dateMatch[0], '').trim();
+                    const parsedDate = Utils.parseDate(dateMatch[1]);
+                    if (parsedDate) {
+                        date = Utils.formatDate(parsedDate, 'YYYY.MM.DD');
+                        stem = stem.replace(dateMatch[0], '').trim();
+                    }
                 }
 
+                // Remove common business suffixes
                 stem = stem.replace(/,?\s*(llp|inc\.?|pc|corp\.?|llc)$/i, '');
 
+                // Process tokens while preserving parentheses
                 const tokens = stem.split(/\s+/);
                 const processed = tokens.map(token => {
+                    // Check if token has parentheses
+                    const parenMatch = token.match(/^(\(*)([^()]+)(\)*)$/);
+                    if (parenMatch) {
+                        const [, openParens, word, closeParens] = parenMatch;
+                        const upper = word.toUpperCase();
+                        if (this.ACRONYMS.has(upper)) {
+                            return openParens + upper + closeParens;
+                        }
+                        return openParens + word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() + closeParens;
+                    }
+
                     const upper = token.toUpperCase();
                     if (this.ACRONYMS.has(upper)) return upper;
                     return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
@@ -766,6 +786,28 @@
                 return el ? el.textContent.trim() : '';
             },
 
+            async shortenUrl(url) {
+                try {
+                    // Use is.gd URL shortening service (free, no API key required)
+                    const apiUrl = `https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`;
+                    const response = await fetch(apiUrl);
+                    if (response.ok) {
+                        const shortUrl = await response.text();
+                        return shortUrl.trim();
+                    }
+                } catch (e) {
+                    console.warn('Failed to shorten URL:', e);
+                }
+
+                // Fallback: return simplified version of original URL
+                let shortened = url.replace(/^https?:\/\/(www\.)?/, '');
+                shortened = shortened.replace(/\/$/, '');
+                if (shortened.length > 60) {
+                    shortened = shortened.substring(0, 57) + '...';
+                }
+                return shortened;
+            },
+
             buildAntinoteURL(action, content, title) {
                 const base = 'antinote://x-callback-url';
                 let url = `${base}/${action}?content=${encodeURIComponent(content)}`;
@@ -831,33 +873,41 @@
                 setTimeout(() => { this.launching = false; }, 1000);
             },
 
-            createNote() {
+            async createNote() {
                 const client = this.getClientFirstLast();
                 const date = Utils.formatDate(new Date(), 'MM/DD/YY');
                 const activeDoc = this.getActiveDocument();
                 const pageUrl = window.location.href;
+                const shortUrl = await this.shortenUrl(pageUrl);
 
                 const header = client ? `# ${client} — ${date}` : `# ${date}`;
                 let content = `${header}\n\n## ISSUE\n\n---\n\n`;
-                if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
-                content += `[${activeDoc || 'Link'}](${pageUrl})\n\n`;
+                if (activeDoc) {
+                    content += `**Active Document:** ${activeDoc} (${shortUrl})\n\n`;
+                } else {
+                    content += `**Link:** ${shortUrl}\n\n`;
+                }
 
                 const title = (this.config.USE_TITLE && client) ? client : null;
                 const url = this.buildAntinoteURL('createNote', content, title);
                 this.launch(url);
             },
 
-            appendToCurrent() {
+            async appendToCurrent() {
                 const date = Utils.formatDate(new Date(), 'MM/DD/YY');
                 const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                 const activeDoc = this.getActiveDocument();
                 const client = this.getClientFirstLast();
                 const pageUrl = window.location.href;
+                const shortUrl = await this.shortenUrl(pageUrl);
 
                 const subHeader = client ? `## ${date} ${time} — ${client}` : `## ${date} ${time}`;
                 let content = `---\n\n${subHeader}\n\n`;
-                if (activeDoc) content += `**Active Document:** ${activeDoc}\n\n`;
-                content += `[${activeDoc || 'Link'}](${pageUrl})\n\n`;
+                if (activeDoc) {
+                    content += `**Active Document:** ${activeDoc} (${shortUrl})\n\n`;
+                } else {
+                    content += `**Link:** ${shortUrl}\n\n`;
+                }
 
                 const url = this.buildAntinoteURL('appendToCurrent', content);
                 this.launch(url);
