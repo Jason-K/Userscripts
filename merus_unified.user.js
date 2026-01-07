@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.3
+// @version      3.3.4
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -702,14 +702,15 @@
                 const info = this.extractEmailInfo();
                 const newName = this.generateEmailName(info);
 
-                const descInput = document.querySelector('input[name="data[Activity][description]"]');
-                if (descInput) {
-                    descInput.value = newName;
-                    descInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    descInput.dispatchEvent(new Event('change', { bubbles: true }));
+                // Emails use the note-editable panel-body element directly
+                const noteEditable = document.querySelector('.note-editable.panel-body');
+                if (noteEditable) {
+                    noteEditable.textContent = newName;
+                    noteEditable.dispatchEvent(new Event('input', { bubbles: true }));
+                    noteEditable.dispatchEvent(new Event('change', { bubbles: true }));
                     console.log('✓ Email renamed:', newName);
                 } else {
-                    console.log('❌ Email renamer: Description input not found');
+                    console.log('❌ Email renamer: Note-editable element not found');
                 }
             },
 
