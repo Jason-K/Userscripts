@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.2.2
+// @version      3.2.3
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -582,26 +582,54 @@
 
             handleRename() {
                 const input = document.querySelector('input[name="data[Upload][description]"]');
-                if (!input) return;
+                if (!input) {
+                    console.log('❌ Smart renamer: Description input not found');
+                    return;
+                }
 
                 const original = input.value.trim();
-                if (!original) return;
+                if (!original) {
+                    console.log('❌ Smart renamer: Input is empty');
+                    return;
+                }
 
                 const transformed = this.transform(original);
                 if (transformed !== original) {
                     input.value = transformed;
                     input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
                     console.log('✓ Renamed:', original, '→', transformed);
+                } else {
+                    console.log('ℹ️ Smart renamer: No changes needed');
                 }
             },
 
             init() {
+                // Listen for clicks on rename button
                 document.addEventListener('click', (event) => {
                     const btn = event.target.closest('a.rename-document');
                     if (btn) {
+                        console.log('🔍 Rename button clicked, waiting for dialog...');
                         setTimeout(() => this.handleRename(), 500);
                     }
+                }, true);
+
+                // Also watch for the rename dialog to appear via MutationObserver
+                const observer = new MutationObserver((mutations) => {
+                    for (const mutation of mutations) {
+                        for (const node of mutation.addedNodes) {
+                            if (node.nodeType === 1) {
+                                const input = node.querySelector?.('input[name="data[Upload][description]"]');
+                                if (input) {
+                                    console.log('🔍 Rename dialog detected via observer');
+                                    setTimeout(() => this.handleRename(), 100);
+                                }
+                            }
+                        }
+                    }
                 });
+
+                observer.observe(document.body, { childList: true, subtree: true });
 
                 console.log('✓ Smart renamer enabled');
             }
@@ -635,7 +663,10 @@
             },
 
             async renameEmail() {
-                if (!this.isEmailView()) return;
+                if (!this.isEmailView()) {
+                    console.log('❌ Email renamer: Not in email view');
+                    return;
+                }
 
                 const info = this.extractEmailInfo();
                 const newName = this.generateEmailName(info);
@@ -644,17 +675,39 @@
                 if (descInput) {
                     descInput.value = newName;
                     descInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    descInput.dispatchEvent(new Event('change', { bubbles: true }));
                     console.log('✓ Email renamed:', newName);
+                } else {
+                    console.log('❌ Email renamer: Description input not found');
                 }
             },
 
             init() {
+                // Listen for clicks on edit button
                 document.addEventListener('click', (event) => {
                     const btn = event.target.closest('button.edit-button.activity-control');
                     if (btn && this.isEmailView()) {
+                        console.log('🔍 Edit button clicked on email, waiting for dialog...');
                         setTimeout(() => this.renameEmail(), 500);
                     }
+                }, true);
+
+                // Also watch for the edit dialog to appear
+                const observer = new MutationObserver((mutations) => {
+                    for (const mutation of mutations) {
+                        for (const node of mutation.addedNodes) {
+                            if (node.nodeType === 1) {
+                                const input = node.querySelector?.('input[name="data[Activity][description]"]');
+                                if (input && this.isEmailView()) {
+                                    console.log('🔍 Email edit dialog detected via observer');
+                                    setTimeout(() => this.renameEmail(), 100);
+                                }
+                            }
+                        }
+                    }
                 });
+
+                observer.observe(document.body, { childList: true, subtree: true });
 
                 console.log('✓ Email renamer enabled');
             }
