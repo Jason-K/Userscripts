@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.7
+// @version      3.3.8
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -680,7 +680,18 @@
                 // Extract description from note-editable content
                 const description = document.querySelector('.note-editable.panel-body')?.textContent.trim() || '';
                 const dateEl = document.querySelector('#merus-message-sent-date');
-                const date = dateEl ? Utils.parseDate(dateEl.textContent) : new Date();
+
+                // Parse date and time from merus-message-sent-date element
+                // Format: "01/08/2026 12:02 PM"
+                let date = new Date();
+                if (dateEl) {
+                    const dateText = dateEl.textContent.trim();
+                    // Parse the date and time together
+                    const parsed = new Date(dateText);
+                    if (!isNaN(parsed.getTime())) {
+                        date = parsed;
+                    }
+                }
 
                 return { sender, recipientText, description, date };
             },
@@ -725,6 +736,15 @@
                     senderName = info.sender.split('<')[0].trim();
                 }
 
+                // Apply sender name substitutions
+                if (info.sender.includes('jknox@boxerlaw.com')) {
+                    senderName = 'JJK';
+                } else if (info.sender.includes('smurray@boxerlaw.com')) {
+                    senderName = 'SEM';
+                } else if (info.sender.includes('jlitvack@boxerlaw.com')) {
+                    senderName = 'JML';
+                }
+
                 // Extract recipient names (only those with contact info)
                 const recipientNames = this.extractRecipientNames(info.recipientText);
                 const recipientPart = recipientNames ? ` to ${recipientNames}` : '';
@@ -748,6 +768,15 @@
                 const angleMatch = info.sender.match(/^(.+?)\s*<[^>]+>$/);
                 if (angleMatch) {
                     senderName = angleMatch[1].trim();
+                }
+
+                // Apply sender name substitutions
+                if (info.sender.includes('jknox@boxerlaw.com')) {
+                    senderName = 'JJK';
+                } else if (info.sender.includes('smurray@boxerlaw.com')) {
+                    senderName = 'SEM';
+                } else if (info.sender.includes('jlitvack@boxerlaw.com')) {
+                    senderName = 'JML';
                 }
 
                 // Format date for document_date field (MM/DD/YYYY)
