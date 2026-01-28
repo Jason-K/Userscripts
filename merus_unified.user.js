@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.4.0
+// @version      3.4.1
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -309,8 +309,9 @@
 
             titleCase(text, acronyms = []) {
                 const acronymSet = new Set(acronyms);
-                return text.toLowerCase().replace(/\b([\w.]+)\b/g, (word) => {
-                    // Check if this word (without periods) is an acronym
+                // Use regex that captures letters with optional periods (e.g., "m.d." as one word)
+                return text.toLowerCase().replace(/\b([a-z]+(?:\.[a-z]+)*)\.?\b/g, (match, word) => {
+                    // Remove periods for comparison
                     const stripped = word.replace(/\./g, '');
                     const upper = stripped.toUpperCase();
                     if (acronymSet.has(upper)) return upper;
@@ -525,8 +526,8 @@
             },
 
             stripDateFromTitle(text) {
-                // Remove various date patterns from the title
-                let cleaned = text;
+                // Remove file extensions first
+                let cleaned = text.replace(/\.(pdf|doc|docx|txt|jpg|jpeg|png|xls|xlsx|ppt|pptx|rtf|odt)$/i, '');
 
                 // Remove ISO format dates: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
                 cleaned = cleaned.replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, '');
@@ -548,7 +549,7 @@
             },
 
             processTitle(text) {
-                // First strip out any date strings
+                // First strip out any date strings and file extensions
                 let cleaned = this.stripDateFromTitle(text);
 
                 // Apply title case with acronyms
@@ -558,7 +559,13 @@
                 // Make 'Report' lowercase
                 result = result.replace(/\bReport\b/g, 'report');
 
-                return result;
+                // Clean up any leftover periods followed by spaces
+                result = result.replace(/\.\s+/g, ' ');
+
+                // Clean up multiple spaces
+                result = result.replace(/\s+/g, ' ');
+
+                return result.trim();
             },
 
             runFilenameLogic() {
