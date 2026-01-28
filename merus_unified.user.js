@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.8
+// @version      3.3.9
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -267,16 +267,39 @@
 
             parseDate(text) {
                 if (!text) return null;
+
+                // ISO format: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
                 const isoMatch = text.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
                 if (isoMatch) {
                     const [, year, month, day] = isoMatch;
                     return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
                 }
-                const usMatch = text.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+
+                // US format with 4-digit year: MM-DD-YYYY or MM/DD/YYYY or MM.DD.YYYY or MM_DD_YYYY
+                const usMatch = text.match(/(\d{1,2})[-/._](\d{1,2})[-/._](\d{4})/);
                 if (usMatch) {
                     const [, month, day, year] = usMatch;
                     return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
                 }
+
+                // US format with 2-digit year: MM-DD-YY or MM/DD/YY or MM.DD.YY or MM_DD_YY
+                const us2DigitMatch = text.match(/(\d{1,2})[-/._](\d{1,2})[-/._](\d{2})(?!\d)/);
+                if (us2DigitMatch) {
+                    let [, month, day, year] = us2DigitMatch;
+                    // Convert 2-digit year to 4-digit (assumes 20xx for years 00-99)
+                    year = '20' + year;
+                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                }
+
+                // Compact format with 2-digit year: MMDDYY (6 digits)
+                const compactMatch = text.match(/(?:^|_)(\d{2})(\d{2})(\d{2})(?:$|_|\.)/);
+                if (compactMatch) {
+                    let [, month, day, year] = compactMatch;
+                    // Convert 2-digit year to 4-digit
+                    year = '20' + year;
+                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                }
+
                 return null;
             },
 
@@ -286,9 +309,13 @@
 
             titleCase(text, acronyms = []) {
                 const acronymSet = new Set(acronyms);
-                return text.toLowerCase().replace(/\b(\w+\.?\w*)\b/g, (word) => {
-                    const upper = word.toUpperCase();
+                return text.toLowerCase().replace(/\b([\w.]+)\b/g, (word) => {
+                    // Check if this word (without periods) is an acronym
+                    const stripped = word.replace(/\./g, '');
+                    const upper = stripped.toUpperCase();
                     if (acronymSet.has(upper)) return upper;
+
+                    // Regular title case
                     return word.charAt(0).toUpperCase() + word.slice(1);
                 });
             },
@@ -498,7 +525,7 @@
             },
 
             processTitle(text) {
-                const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA', 'QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI'];
+                const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA', 'QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'MD'];
                 return Utils.titleCase(text, acronyms);
             },
 
