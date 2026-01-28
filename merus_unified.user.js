@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.3.9
+// @version      3.4.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -524,9 +524,41 @@
                 return titleEl ? titleEl.textContent.trim() : 'Document';
             },
 
+            stripDateFromTitle(text) {
+                // Remove various date patterns from the title
+                let cleaned = text;
+
+                // Remove ISO format dates: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
+                cleaned = cleaned.replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, '');
+
+                // Remove US format dates with 4-digit year: MM-DD-YYYY, MM/DD/YYYY, MM.DD.YYYY, MM_DD_YYYY
+                cleaned = cleaned.replace(/\d{1,2}[-/._]\d{1,2}[-/._]\d{4}/g, '');
+
+                // Remove US format dates with 2-digit year: MM-DD-YY, MM/DD/YY, MM.DD.YY, MM_DD_YY
+                cleaned = cleaned.replace(/\d{1,2}[-/._]\d{1,2}[-/._]\d{2}(?!\d)/g, '');
+
+                // Remove compact format: MMDDYY (6 consecutive digits)
+                cleaned = cleaned.replace(/(?:^|_|\.)\d{6}(?:$|_|\.)/g, '');
+
+                // Clean up extra underscores, dots, and spaces
+                cleaned = cleaned.replace(/[_.]([_.])+/g, '$1'); // Multiple separators to single
+                cleaned = cleaned.replace(/^[_.\s]+|[_.\s]+$/g, ''); // Trim separators
+
+                return cleaned;
+            },
+
             processTitle(text) {
+                // First strip out any date strings
+                let cleaned = this.stripDateFromTitle(text);
+
+                // Apply title case with acronyms
                 const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA', 'QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'MD'];
-                return Utils.titleCase(text, acronyms);
+                let result = Utils.titleCase(cleaned, acronyms);
+
+                // Make 'Report' lowercase
+                result = result.replace(/\bReport\b/g, 'report');
+
+                return result;
             },
 
             runFilenameLogic() {
@@ -538,35 +570,44 @@
                 return Utils.sanitizeFilename(`${caseName} - ${dateStr} - ${processedTitle}`);
             },
 
-            init() {
-                document.addEventListener('click', async (event) => {
-                    const link = event.target.closest('a[aria-label="Download Document"]');
-                    if (!link) return;
+            handleDownloadClick(event) {
+                const link = event.target.closest('a[aria-label="Download Document"]');
+                if (!link) return;
 
-                    // Only intercept left-click (button 0) and middle-click (button 1). Allow right-click through.
-                    if (event.button !== 0 && event.button !== 1) return;
+                // Only intercept left-click (button 0) and middle-click (button 1). Allow right-click through.
+                if (event.button !== 0 && event.button !== 1) return;
 
-                    event.preventDefault();
-                    const filename = this.runFilenameLogic();
+                event.preventDefault();
+                const filename = this.runFilenameLogic();
 
-                    try {
-                        await navigator.clipboard.writeText(filename);
-                        console.log('✓ PDF filename copied:', filename);
-                    } catch (err) {
-                        console.warn('Could not copy filename:', err);
-                    }
-
-                    // For left-click only, trigger the download
-                    if (event.button === 0) {
-                        const href = link.getAttribute('href');
-                        if (href) {
-                            const a = document.createElement('a');
-                            a.href = href;
-                            a.download = filename + '.pdf';
-                            a.click();
-                        }
-                    }
+                // Copy filename to clipboard
+                navigator.clipboard.writeText(filename).then(() => {
+                    console.log('✓ PDF filename copied:', filename);
+                }).catch(err => {
+                    console.warn('Could not copy filename:', err);
                 });
+
+                const href = link.getAttribute('href');
+                if (!href) return;
+
+                // For left-click, trigger download
+                if (event.button === 0) {
+                    const a = document.createElement('a');
+                    a.href = href;
+                    a.download = filename + '.pdf';
+                    a.click();
+                }
+                // For middle-click, open in new tab
+                else if (event.button === 1) {
+                    window.open(href, '_blank');
+                }
+            },
+
+            init() {
+                // Listen for both click and auxclick (middle/right click) events
+                const handler = this.handleDownloadClick.bind(this);
+                document.addEventListener('click', handler, true);
+                document.addEventListener('auxclick', handler, true);
 
                 console.log('✓ Quick PDF download enabled');
             }
