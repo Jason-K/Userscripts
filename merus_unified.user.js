@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.4.1
+// @version      3.4.3
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -272,14 +272,14 @@
                 const isoMatch = text.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
                 if (isoMatch) {
                     const [, year, month, day] = isoMatch;
-                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
                 }
 
                 // US format with 4-digit year: MM-DD-YYYY or MM/DD/YYYY or MM.DD.YYYY or MM_DD_YYYY
                 const usMatch = text.match(/(\d{1,2})[-/._](\d{1,2})[-/._](\d{4})/);
                 if (usMatch) {
                     const [, month, day, year] = usMatch;
-                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
                 }
 
                 // US format with 2-digit year: MM-DD-YY or MM/DD/YY or MM.DD.YY or MM_DD_YY
@@ -287,8 +287,8 @@
                 if (us2DigitMatch) {
                     let [, month, day, year] = us2DigitMatch;
                     // Convert 2-digit year to 4-digit (assumes 20xx for years 00-99)
-                    year = '20' + year;
-                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    const fullYear = 2000 + parseInt(year);
+                    return new Date(fullYear, parseInt(month) - 1, parseInt(day));
                 }
 
                 // Compact format with 2-digit year: MMDDYY (6 digits)
@@ -296,8 +296,8 @@
                 if (compactMatch) {
                     let [, month, day, year] = compactMatch;
                     // Convert 2-digit year to 4-digit
-                    year = '20' + year;
-                    return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    const fullYear = 2000 + parseInt(year);
+                    return new Date(fullYear, parseInt(month) - 1, parseInt(day));
                 }
 
                 return null;
@@ -556,11 +556,20 @@
                 const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA', 'QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'MD'];
                 let result = Utils.titleCase(cleaned, acronyms);
 
-                // Make 'Report' lowercase
-                result = result.replace(/\bReport\b/g, 'report');
+                // Words that should remain lowercase (document types and common nouns)
+                const lowercaseWords = ['deposition', 'transcript', 'report', 'letter', 'email', 'document', 'declaration', 'affidavit', 'agreement', 'contract', 'form', 'and', 'or', 'the', 'a', 'an'];
+                result = result.replace(/\b([A-Za-z]+)\b/g, (match) => {
+                    return lowercaseWords.includes(match.toLowerCase()) ? match.toLowerCase() : match;
+                });
+
+                // Remove periods that are directly attached to words (like "MD.")
+                result = result.replace(/(\bMD)\.(?=\s|$)/g, '$1');
 
                 // Clean up any leftover periods followed by spaces
                 result = result.replace(/\.\s+/g, ' ');
+
+                // Remove any trailing dots, commas, and spaces
+                result = result.replace(/[,.\s]+$/g, '');
 
                 // Clean up multiple spaces
                 result = result.replace(/\s+/g, ' ');
