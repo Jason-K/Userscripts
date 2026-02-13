@@ -1154,7 +1154,73 @@
         };
 
         // ============================================================================
-        // 8. DEBUG HELPER (Console access to throttler stats)
+        // 8. COMBINED RECORDS DOWNLOAD RENAMER
+        // ============================================================================
+
+        const CombinedRecordsRenamer = {
+            getClientLastFirst() {
+                const el = document.querySelector('#lpClientName span.pretty-name-span');
+                if (!el) return null;
+
+                const raw = (el.getAttribute('title') || el.textContent || '').trim();
+                const namePart = raw.split(' v. ')[0].trim();
+                const parts = namePart.split(',');
+
+                if (parts.length < 2) return namePart;
+
+                const last = parts[0].trim();
+                const first = parts.slice(1).join(' ').trim();
+                return `${last}_${first}`.trim();
+            },
+
+            buildFilename() {
+                const today = Utils.formatDate(new Date(), 'YYYY.MM.DD');
+                const lastFirst = this.getClientLastFirst() || 'Unknown_Case';
+                return `${today}-${lastFirst}-combinedRecords.zip`;
+            },
+
+            handleClick(event) {
+                const link = event.target.closest('a.btn.btn-default.btn-lg');
+                if (!link) return;
+
+                const label = (link.textContent || '').trim();
+                if (!label.includes('Open/Download Now')) return;
+
+                if (event.button !== 0 && event.button !== 1) return;
+
+                const filename = this.buildFilename();
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(filename).then(() => {
+                        console.log('✓ Combined records filename copied:', filename);
+                    }).catch(err => {
+                        console.warn('Could not copy combined records filename:', err);
+                    });
+                }
+
+                const href = link.getAttribute('href');
+                if (!href) return;
+
+                event.preventDefault();
+
+                const a = document.createElement('a');
+                a.href = href;
+                a.download = filename;
+                a.rel = 'noopener';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            },
+
+            init() {
+                const handler = this.handleClick.bind(this);
+                document.addEventListener('click', handler, true);
+                document.addEventListener('auxclick', handler, true);
+                console.log('✓ Combined records download renamer enabled');
+            }
+        };
+
+        // ============================================================================
+        // 9. DEBUG HELPER (Console access to throttler stats)
         // ============================================================================
 
         window.MerusUtils = {
@@ -1178,6 +1244,7 @@
         SmartRenamer.init();
         EmailRenamer.init();
         AntinoteIntegration.init();
+        CombinedRecordsRenamer.init();
 
         console.log('✅ All MerusCase utilities initialized successfully');
         console.log('💡 Tip: Run MerusUtils.getThrottlerStats() in console to see rate limiter stats');
