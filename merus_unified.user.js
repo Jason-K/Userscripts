@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.4.5
+// @version      3.5.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -327,6 +327,85 @@
                 const raw = (el.getAttribute('title') || el.textContent || '').trim();
                 const namePart = raw.split(' v. ')[0].trim();
                 return namePart;
+            },
+
+            // Consolidated substitution function for all renaming operations
+            applyStandardSubstitutions(text) {
+                if (!text) return text;
+
+                // Define substitutions: [pattern, replacement, flags]
+                // Patterns are case-insensitive by default
+                const substitutions = [
+                    // Medical professionals
+                    [/\bqualified medical evaluator\b/gi, 'QME'],
+                    [/\bagreed medical evaluator\b/gi, 'AME'],
+
+                    // Reports
+                    [/\btreatment report\b/gi, 'PR2'],
+                    [/\bMRI report\b/gi, 'MRI'],
+                    [/\bEMG\/NCS\b/gi, 'EMG-NCS'],
+                    [/\bEMG NCS\b/gi, 'EMG-NCS'],
+
+                    // Letters (must be checked in order from most specific to least specific)
+                    [/\bletter to WCAB\b/gi, 'LT-WCAB'],
+                    [/\bletter to WCJ\b/gi, 'LT-WCAB'],
+                    [/\bletter to QME\b/gi, 'LT-QME'],
+                    [/\bletter to AME\b/gi, 'LT-AME'],
+                    [/\bletter to doctor\b/gi, 'LT-MD'],
+                    [/\bletter to PTP\b/gi, 'LT-MD'],
+                    [/\bletter to defendant\b/gi, 'LT-D'],
+                    [/\bletter to client\b/gi, 'LT-C'],
+                    [/\bletter from\b/gi, 'LF-'],
+
+                    // Medicare Set Aside
+                    [/\bmedicare set-aside\b/gi, 'MSA'],
+                    [/\bmedicare set aside\b/gi, 'MSA'],
+                    [/\bMSA allocation\b/gi, 'MSA'],
+                    [/\bMSA proposal\b/gi, 'MSA'],
+                    [/\bproposed MSA\b/gi, 'MSA'],
+
+                    // Business entity suffixes
+                    [/\ba professional corporation\b/gi, ''],
+                    [/\bA Prof\. Corp\.\b/gi, ''],
+                    [/\bprof corp\b/gi, ''],
+                    [/\binc\b/gi, ''],
+                    [/\bincorporated\b/gi, ''],
+                    [/\bcorp\b/gi, ''],
+                    [/\bcorporation\b/gi, ''],
+
+                    // Litigation documents
+                    [/\bdeposition\b/gi, 'depo'],
+                    [/\bdeclaration of readiness to proceed\b/gi, 'DOR'],
+                    [/\bdeclaration of readiness\b/gi, 'DOR'],
+
+                    // hearing types
+                    [/\bmandatory settlement conference\b/gi, 'MSC'],
+                    [/\bmandatory settlement\b/gi, 'MSC'],
+                    [/\bstatus conference\b/gi, 'SC'],
+                    [/\bpriority conference\b/gi, 'PC'],
+                    [/\bcase management conference\b/gi, 'CMC'],
+                    [/\bmediation\b/gi, 'ADR'],
+                    [/\barbitration\b/gi, 'ADR'],
+
+                    // discovery
+                    [/\binterrogatory\b/gi, 'ROG'],
+                    [/\brequest for production\b/gi, 'RFP'],
+                    [/\bsubpoena\b/gi, 'SDT'],
+                ];
+
+                let result = text;
+                for (const [pattern, replacement] of substitutions) {
+                    result = result.replace(pattern, replacement);
+                }
+
+                // Clean up multiple spaces that might result from removals
+                result = result.replace(/\s+/g, ' ').trim();
+
+                // Clean up stray punctuation
+                result = result.replace(/\s*-\s*$/g, ''); // Remove trailing dash
+                result = result.replace(/\s*,\s*,/g, ','); // Remove double commas
+
+                return result;
             }
         };
 
@@ -552,12 +631,15 @@
                 // First strip out any date strings and file extensions
                 let cleaned = this.stripDateFromTitle(text);
 
+                // Apply standard substitutions BEFORE title casing
+                cleaned = Utils.applyStandardSubstitutions(cleaned);
+
                 // Apply title case with acronyms
-                const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA', 'QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'MD'];
+                const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA', 'QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'MD', 'PR2', 'LF', 'LT', 'WCAB', 'WCJ'];
                 let result = Utils.titleCase(cleaned, acronyms);
 
                 // Words that should remain lowercase (document types and common nouns)
-                const lowercaseWords = ['deposition', 'transcript', 'report', 'letter', 'email', 'document', 'declaration', 'affidavit', 'agreement', 'contract', 'form', 'and', 'or', 'the', 'a', 'an', "re", "of", "in", "on", "with", "for", "to", "by", "regarding", "report", "notes", "note", "summary", "case", "file", "statement", "interview", "evaluation", "assessment"];
+                const lowercaseWords = ['deposition', 'transcript', 'report', 'letter', 'email', 'document', 'declaration', 'affidavit', 'agreement', 'contract', 'form', 'and', 'or', 'the', 'a', 'an', "re", "of", "in", "on", "with", "for", "to", "by", "regarding", "report", "notes", "note", "summary", "case", "file", "statement", "interview", "evaluation", "assessment", "from", "concerning", "about", "as", "at", "between", "among", "per", "via"];
                 result = result.replace(/\b([A-Za-z]+)\b/g, (match) => {
                     return lowercaseWords.includes(match.toLowerCase()) ? match.toLowerCase() : match;
                 });
@@ -631,11 +713,14 @@
         // ============================================================================
 
         const SmartRenamer = {
-            ACRONYMS: new Set(['PT', 'MD', 'QME', 'AME', 'UR', 'EMG', 'NCV', 'MRI', 'PTP', 'TTD', 'PPD', 'C&R', 'MSA', 'XR']),
+            ACRONYMS: new Set(['PT', 'MD', 'QME', 'AME', 'UR', 'EMG', 'NCV', 'MRI', 'PTP', 'TTD', 'PPD', 'C&R', 'MSA', 'XR', 'PR2', 'LF', 'LT', 'WCAB', 'WCJ']),
 
             transform(stem) {
                 // Strip file extension if present
                 stem = stem.replace(/\.(pdf|doc|docx|txt|jpg|png|jpeg)$/i, '');
+
+                // Apply standard substitutions FIRST
+                stem = Utils.applyStandardSubstitutions(stem);
 
                 // Extract and convert date
                 const dateMatch = stem.match(/(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})/);
@@ -830,7 +915,9 @@
                 const recipientNames = this.extractRecipientNames(info.recipientText);
                 const recipientPart = recipientNames ? ` to ${recipientNames}` : '';
 
-                const descShort = info.description.substring(0, 50).trim();
+                // Apply standard substitutions to description before truncating
+                let processedDesc = Utils.applyStandardSubstitutions(info.description);
+                const descShort = processedDesc.substring(0, 50).trim();
 
                 return `${dateStr} at ${timeStr} - email from ${senderName}${recipientPart} - ${descShort}`;
             },
