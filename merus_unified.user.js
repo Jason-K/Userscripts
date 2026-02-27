@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.4.4
+// @version      3.4.5
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -557,7 +557,7 @@
                 let result = Utils.titleCase(cleaned, acronyms);
 
                 // Words that should remain lowercase (document types and common nouns)
-                const lowercaseWords = ['deposition', 'transcript', 'report', 'letter', 'email', 'document', 'declaration', 'affidavit', 'agreement', 'contract', 'form', 'and', 'or', 'the', 'a', 'an'];
+                const lowercaseWords = ['deposition', 'transcript', 'report', 'letter', 'email', 'document', 'declaration', 'affidavit', 'agreement', 'contract', 'form', 'and', 'or', 'the', 'a', 'an', "re", "of", "in", "on", "with", "for", "to", "by", "regarding", "report", "notes", "note", "summary", "case", "file", "statement", "interview", "evaluation", "assessment"];
                 result = result.replace(/\b([A-Za-z]+)\b/g, (match) => {
                     return lowercaseWords.includes(match.toLowerCase()) ? match.toLowerCase() : match;
                 });
@@ -606,12 +606,9 @@
                 const href = link.getAttribute('href');
                 if (!href) return;
 
-                // For left-click, trigger download
+                // For left-click, open in new tab
                 if (event.button === 0) {
-                    const a = document.createElement('a');
-                    a.href = href;
-                    a.download = filename + '.pdf';
-                    a.click();
+                    window.open(href, '_blank');
                 }
                 // For middle-click, open in new tab
                 else if (event.button === 1) {
