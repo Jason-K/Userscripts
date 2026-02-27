@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.5.0
+// @version      3.5.1
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -329,6 +329,12 @@
                 return namePart;
             },
 
+            // Consolidated list of acronyms that should remain uppercase
+            ACRONYMS: ['ADR', 'AME', 'APPROVAL', 'C&R', 'CMC', 'DENIAL', 'DOR', 'EMG', 'LF', 'LT', 'MD', 'MMI', 'MOD', 'MODIFICATION', 'MRI', 'MSA', 'MSC', 'NCV', 'OAC&R', 'OACR', 'PC', 'PPD', 'PR2', 'PT', 'PTP', 'QME', 'RFP', 'ROG', 'SC', 'SDT', 'TTD', 'UR', 'WCAB', 'WCJ', 'XR'],
+
+            // Consolidated list of words that should remain lowercase in titles
+            LOWERCASE_WORDS: ['a', 'about', 'affidavit', 'agreement', 'among', 'an', 'and', 'as', 'assessment', 'at', 'between', 'by', 'case', 'concerning', 'contract', 'declaration', 'deposition', 'document', 'email', 'evaluation', 'file', 'for', 'form', 'from', 'in', 'interview', 'letter', 'note', 'notes', 'of', 'on', 'or', 'per', 're', 'regarding', 'report', 'statement', 'summary', 'the', 'to', 'transcript', 'via', 'with'],
+
             // Consolidated substitution function for all renaming operations
             applyStandardSubstitutions(text) {
                 if (!text) return text;
@@ -336,8 +342,13 @@
                 // Define substitutions: [pattern, replacement, flags]
                 // Patterns are case-insensitive by default
                 const substitutions = [
-                    // Medical professionals
+                    // Parties
                     [/\bqualified medical evaluator\b/gi, 'QME'],
+                    [/\bWorkers' Compensation Appeals Board\b/gi, 'WCAB'],
+                    [/\bAppeals'? Board\b/gi, 'WCAB'],
+                    [/\bBoard\b/gi, 'WCAB'],
+                    [/\bdefense attorney\b/gi, 'DA'],
+                    [/\bjudge\b/gi, 'WCJ'],
                     [/\bagreed medical evaluator\b/gi, 'AME'],
 
                     // Reports
@@ -345,17 +356,20 @@
                     [/\bMRI report\b/gi, 'MRI'],
                     [/\bEMG\/NCS\b/gi, 'EMG-NCS'],
                     [/\bEMG NCS\b/gi, 'EMG-NCS'],
+                    [/\bbenefits printout\b/gi, 'POB'],
+                    [/\bprintout of benefits\b/gi, 'POB'],
 
                     // Letters (must be checked in order from most specific to least specific)
-                    [/\bletter to WCAB\b/gi, 'LT-WCAB'],
-                    [/\bletter to WCJ\b/gi, 'LT-WCAB'],
-                    [/\bletter to QME\b/gi, 'LT-QME'],
-                    [/\bletter to AME\b/gi, 'LT-AME'],
-                    [/\bletter to doctor\b/gi, 'LT-MD'],
-                    [/\bletter to PTP\b/gi, 'LT-MD'],
-                    [/\bletter to defendant\b/gi, 'LT-D'],
-                    [/\bletter to client\b/gi, 'LT-C'],
+                    [/\bletter to\b/gi, 'LT-'],
                     [/\bletter from\b/gi, 'LF-'],
+                    [/\b\- WCAB\b/gi, ' -WCAB'],
+                    [/\b\- judge\b/gi, ' -WCJ'],
+                    [/\b\- QME\b/gi, 'LT-QME'],
+                    [/\b\- AME\b/gi, 'LT-AME'],
+                    [/\b\- MD\b/gi, 'LT-MD'],
+                    [/\b\- PTP\b/gi, 'LT-MD'],
+                    [/\b\- D\b/gi, 'LT-D'],
+                    [/\b\- C\b/gi, 'LT-C'],
 
                     // Medicare Set Aside
                     [/\bmedicare set-aside\b/gi, 'MSA'],
@@ -635,13 +649,11 @@
                 cleaned = Utils.applyStandardSubstitutions(cleaned);
 
                 // Apply title case with acronyms
-                const acronyms = ['C&R', 'OACR', 'OAC&R', 'MSA', 'QME', 'AME', 'PTP', 'MRI', 'XR', 'MMI', 'MD', 'PR2', 'LF', 'LT', 'WCAB', 'WCJ'];
-                let result = Utils.titleCase(cleaned, acronyms);
+                let result = Utils.titleCase(cleaned, Utils.ACRONYMS);
 
                 // Words that should remain lowercase (document types and common nouns)
-                const lowercaseWords = ['deposition', 'transcript', 'report', 'letter', 'email', 'document', 'declaration', 'affidavit', 'agreement', 'contract', 'form', 'and', 'or', 'the', 'a', 'an', "re", "of", "in", "on", "with", "for", "to", "by", "regarding", "report", "notes", "note", "summary", "case", "file", "statement", "interview", "evaluation", "assessment", "from", "concerning", "about", "as", "at", "between", "among", "per", "via"];
                 result = result.replace(/\b([A-Za-z]+)\b/g, (match) => {
-                    return lowercaseWords.includes(match.toLowerCase()) ? match.toLowerCase() : match;
+                    return Utils.LOWERCASE_WORDS.includes(match.toLowerCase()) ? match.toLowerCase() : match;
                 });
 
                 // Remove periods that are directly attached to words (like "MD.")
@@ -713,7 +725,10 @@
         // ============================================================================
 
         const SmartRenamer = {
-            ACRONYMS: new Set(['PT', 'MD', 'QME', 'AME', 'UR', 'EMG', 'NCV', 'MRI', 'PTP', 'TTD', 'PPD', 'C&R', 'MSA', 'XR', 'PR2', 'LF', 'LT', 'WCAB', 'WCJ']),
+            // Use shared acronyms list from Utils
+            get ACRONYMS() {
+                return new Set(Utils.ACRONYMS);
+            },
 
             transform(stem) {
                 // Strip file extension if present
