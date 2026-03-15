@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         URL Redirector (Velja replacement)
-// @namespace    https://github.com/jasonkastner
+// @namespace    https://github.com/jason-k
 // @version      1.0.0
 // @description  Redirect legal/work URLs to Velja-equivalent targets
 // @author       Jason
