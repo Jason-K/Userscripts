@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.5.2
+// @version      3.5.3
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
 // @grant        GM_addStyle
+// @grant        unsafeWindow
 // @run-at       document-start
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_unified.user.js
 // @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_unified.user.js
@@ -1419,14 +1420,18 @@
         // 9. DEBUG HELPER (Console access to throttler stats)
         // ============================================================================
 
-        window.MerusUtils = {
-            getThrottlerStats: () => RequestThrottler.getStats(),
-            resetThrottler: () => {
-                RequestThrottler.requestLog.clear();
-                RequestThrottler.blockedUntil.clear();
-                RequestThrottler.stats = { blocked: 0, allowed: 0, focusDebounced: 0 };
-                console.log('✓ Throttler reset');
-            }
+        unsafeWindow.MerusUtils = {
+          getThrottlerStats: () => RequestThrottler.getStats(),
+          resetThrottler: () => {
+            RequestThrottler.requestLog.clear();
+            RequestThrottler.blockedUntil.clear();
+            RequestThrottler.stats = {
+              blocked: 0,
+              allowed: 0,
+              focusDebounced: 0,
+            };
+            console.log("✓ Throttler reset");
+          },
         };
 
         // ============================================================================
