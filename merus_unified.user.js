@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.5.1
+// @version      3.5.2
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -429,19 +429,116 @@
 
         const PreventCloseWarning = {
             init() {
-                window.addEventListener('load', () => {
-                    window.onbeforeunload = null;
+                // Firefox still shows native dialogs when sites use beforeunload listeners.
+                // Block both property assignment and event listener registration.
+                const originalAddEventListener = EventTarget.prototype.addEventListener;
+                const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
 
-                    const observer = new MutationObserver(() => {
-                        if (window.onbeforeunload !== null) {
-                            window.onbeforeunload = null;
+                const isBeforeUnload = (type) => String(type).toLowerCase() === 'beforeunload';
+
+                try {
+                    Object.defineProperty(window, 'onbeforeunload', {
+                        configurable: true,
+                        enumerable: true,
+                        get() {
+                            return null;
+                        },
+                        set(_handler) {
+                            // Intentionally ignored to suppress page-defined handlers.
                         }
                     });
+                } catch (e) {
+                    // Ignore if browser disallows redefining this property.
+                }
 
-                    observer.observe(document.documentElement, {
-                        childList: true,
-                        subtree: true
-                    });
+                // Firefox can still trigger dialogs when returnValue is set.
+                // Ignore non-empty assignments while preserving normal event flow.
+                try {
+                    const beforeUnloadProto = window.BeforeUnloadEvent && window.BeforeUnloadEvent.prototype;
+                    if (beforeUnloadProto) {
+                        Object.defineProperty(beforeUnloadProto, 'returnValue', {
+                            configurable: true,
+                            enumerable: true,
+                            get() {
+                                return undefined;
+                            },
+                            set(_value) {
+                                // Intentionally ignored.
+                            }
+                        });
+                    }
+                } catch (e) {
+                    // Ignore if browser disallows redefining this property.
+                }
+
+                EventTarget.prototype.addEventListener = function(type, listener, options) {
+                    if (isBeforeUnload(type) && (this === window || this === document || this === document.body)) {
+                        return;
+                    }
+                    return originalAddEventListener.call(this, type, listener, options);
+                };
+
+                EventTarget.prototype.removeEventListener = function(type, listener, options) {
+                    if (isBeforeUnload(type) && (this === window || this === document || this === document.body)) {
+                        return;
+                    }
+                    return originalRemoveEventListener.call(this, type, listener, options);
+                };
+
+                const neutralizeBeforeUnload = (event) => {
+                    event.stopImmediatePropagation();
+                    event.preventDefault();
+                    event.returnValue = undefined;
+                };
+
+                // Capture phase handler runs first and neutralizes any existing handlers.
+                window.addEventListener('beforeunload', neutralizeBeforeUnload, { capture: true });
+                document.addEventListener('beforeunload', neutralizeBeforeUnload, { capture: true });
+
+                const protectFrame = (frameWin) => {
+                    try {
+                        if (!frameWin || !frameWin.document) return;
+                        try {
+                            Object.defineProperty(frameWin, 'onbeforeunload', {
+                                configurable: true,
+                                enumerable: true,
+                                get() {
+                                    return null;
+                                },
+                                set(_handler) {
+                                    // Intentionally ignored.
+                                }
+                            });
+                        } catch (e) {
+                            // Ignore if not configurable.
+                        }
+
+                        frameWin.addEventListener('beforeunload', neutralizeBeforeUnload, { capture: true });
+                        frameWin.document.addEventListener('beforeunload', neutralizeBeforeUnload, { capture: true });
+                    } catch (e) {
+                        // Cross-origin frames are inaccessible by design.
+                    }
+                };
+
+                const protectExistingFrames = () => {
+                    const frames = document.querySelectorAll('iframe');
+                    for (const frame of frames) {
+                        protectFrame(frame.contentWindow);
+                    }
+                };
+
+                const frameObserver = new MutationObserver(() => {
+                    protectExistingFrames();
+                });
+
+                frameObserver.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true
+                });
+
+                window.addEventListener('load', () => {
+                    window.onbeforeunload = null;
+                    protectExistingFrames();
                 });
                 console.log('✓ Close warning prevention enabled');
             }
