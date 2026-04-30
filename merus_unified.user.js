@@ -1518,7 +1518,7 @@
             if (activeDoc) {
               content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl}\n\n`;
             } else {
-              content += `**Link:** ( ${pageUrl} )\n\n`;
+              content += `**Link:** ${pageUrl}\n\n`;
             }
           }
 
@@ -1550,7 +1550,7 @@
             if (activeDoc) {
               content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl}\n\n`;
             } else {
-              content += `**Link:** ( ${pageUrl} )\n\n`;
+              content += `**Link:** ${pageUrl}\n\n`;
             }
           }
 
