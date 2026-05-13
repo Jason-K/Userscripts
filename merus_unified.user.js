@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.0
+// @version      3.6.2
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -521,6 +521,53 @@
         },
       };
 
+      const ClipboardUtils = {
+        copyText(text) {
+          if (!text) {
+            return Promise.reject(new Error("No text provided for clipboard"));
+          }
+
+          // Firefox often blocks async clipboard writes after user activation expires.
+          // Try synchronous copy first while still in the click event call stack.
+          if (this.copyWithExecCommand(text)) {
+            return Promise.resolve();
+          }
+
+          if (
+            navigator.clipboard &&
+            typeof navigator.clipboard.writeText === "function"
+          ) {
+            return navigator.clipboard.writeText(text);
+          }
+
+          return Promise.reject(new Error("Clipboard unavailable"));
+        },
+
+        copyWithExecCommand(text) {
+          try {
+            const textarea = document.createElement("textarea");
+            textarea.value = text;
+            textarea.setAttribute("readonly", "");
+            textarea.style.position = "fixed";
+            textarea.style.top = "-10000px";
+            textarea.style.left = "-10000px";
+            textarea.style.opacity = "0";
+
+            const container = document.body || document.documentElement;
+            container.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            textarea.setSelectionRange(0, textarea.value.length);
+
+            const copied = document.execCommand("copy");
+            textarea.remove();
+            return copied;
+          } catch (_e) {
+            return false;
+          }
+        },
+      };
+
       // ============================================================================
       // 1. PREVENT CLOSE WARNING
       // ============================================================================
@@ -961,8 +1008,7 @@
           const filename = this.runFilenameLogic();
 
           // Copy filename to clipboard
-          navigator.clipboard
-            .writeText(filename)
+          ClipboardUtils.copyText(filename)
             .then(() => {
               console.log("✓ PDF filename copied:", filename);
             })
@@ -1482,9 +1528,8 @@
           }
 
           if (!opened) {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              navigator.clipboard
-                .writeText(url)
+            if (url) {
+              ClipboardUtils.copyText(url)
                 .then(() => {
                   this.showToast("Antinote URL copied. Tap to open Antinote.");
                 })
@@ -1632,9 +1677,8 @@
           if (event.button !== 0 && event.button !== 1) return;
 
           const filename = this.buildFilename();
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard
-              .writeText(filename)
+          if (filename) {
+            ClipboardUtils.copyText(filename)
               .then(() => {
                 console.log("✓ Combined records filename copied:", filename);
               })
