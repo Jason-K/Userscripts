@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.2
+// @version      3.6.3
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1498,7 +1498,16 @@
           return url;
         },
 
-        launch(url) {
+        buildSidenotesURL(content) {
+          const encoded = encodeURIComponent(content);
+          const url = `sidenotes://add-note-with-text/${encoded}`;
+
+          console.log("Generated Sidenotes URL:", url);
+
+          return url;
+        },
+
+        launch(url, appName = "App") {
           if (this.launching) return;
           const now = Date.now();
           if (now - this.lastLaunchAt < this.config.REENTRY_MS) return;
@@ -1531,7 +1540,9 @@
             if (url) {
               ClipboardUtils.copyText(url)
                 .then(() => {
-                  this.showToast("Antinote URL copied. Tap to open Antinote.");
+                  this.showToast(
+                    `${appName} URL copied. Tap to open ${appName}.`,
+                  );
                 })
                 .catch(() => {
                   this.showToast("Unable to open. Please paste URL manually.");
@@ -1569,7 +1580,7 @@
 
           const title = this.config.USE_TITLE && client ? client : null;
           const url = this.buildAntinoteURL("createNote", content, title);
-          this.launch(url);
+          this.launch(url, "Antinote");
         },
 
         appendToCurrent() {
@@ -1600,7 +1611,37 @@
           }
 
           const url = this.buildAntinoteURL("appendToCurrent", content);
-          this.launch(url);
+          this.launch(url, "Antinote");
+        },
+
+        addToSidenotes() {
+          const date = Utils.formatDate(new Date(), "MM/DD/YY");
+          const time = new Date().toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const client = this.getClientFirstLast();
+          const pageUrl = window.location.href;
+
+          const subHeader = client
+            ? `## ${date} ${time} — ${client}`
+            : `## ${date} ${time}`;
+          let content = `---\n\n${subHeader}\n\n`;
+
+          if (this.isEmailView()) {
+            const { sentDate, subject } = this.getEmailInfo();
+            content += `**Sent:** ${sentDate}\n**Subject:** ${subject}\n**Link:** ${pageUrl}\n\n`;
+          } else {
+            const activeDoc = this.getActiveDocument();
+            if (activeDoc) {
+              content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl}\n\n`;
+            } else {
+              content += `**Link:** ${pageUrl}\n\n`;
+            }
+          }
+
+          const url = this.buildSidenotesURL(content);
+          this.launch(url, "Sidenotes");
         },
 
         init() {
@@ -1609,6 +1650,7 @@
                     .jjk-antinote-btn{padding:10px 14px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);background:#1f6feb;color:#fff !important;font:600 13px/1 -apple-system,sans-serif;cursor:pointer;border:none;opacity:.95}
                     .jjk-antinote-btn:hover{opacity:1}
                     .jjk-antinote-btn.append{background:#6f42c1}
+                    .jjk-antinote-btn.sidenotes{background:#0f766e}
                 `);
 
           const wrap = document.createElement("div");
@@ -1624,8 +1666,14 @@
           appendBtn.textContent = "➕ Append";
           appendBtn.onclick = () => this.appendToCurrent();
 
+          const sidenotesBtn = document.createElement("button");
+          sidenotesBtn.className = "jjk-antinote-btn sidenotes";
+          sidenotesBtn.textContent = "📚 Sidenotes";
+          sidenotesBtn.onclick = () => this.addToSidenotes();
+
           wrap.appendChild(createBtn);
           wrap.appendChild(appendBtn);
+          wrap.appendChild(sidenotesBtn);
           document.body.appendChild(wrap);
 
           document.addEventListener("keydown", (e) => {
