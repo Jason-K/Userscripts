@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.3
+// @version      3.6.5
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -238,7 +238,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.2.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.6.5 initializing modules...",
       );
 
       // ============================================================================
@@ -1411,6 +1411,8 @@
           LAUNCH_METHOD: "anchor",
           USE_TITLE: true,
           REENTRY_MS: 1500,
+          SIDENOTES_MODE: "shortcut",
+          SIDENOTES_SHORTCUT_NAME: "Merus Add Sidenote",
         },
 
         showToast(message) {
@@ -1465,6 +1467,27 @@
           return `${firstM} ${last}`.trim();
         },
 
+        getClientLastFirst() {
+          const el = document.querySelector(
+            "#lpClientName span.pretty-name-span",
+          );
+          if (!el) {
+            return null;
+          }
+
+          const raw = (el.getAttribute("title") || el.textContent || "").trim();
+          const namePart = raw.split(" v. ")[0].trim();
+          const parts = namePart.split(",");
+
+          if (parts.length < 2) {
+            return namePart;
+          }
+
+          const last = parts[0].trim();
+          const firstM = parts.slice(1).join(" ").trim();
+          return `${last}, ${firstM}`.trim();
+        },
+
         getActiveDocument() {
           const el = document.querySelector(
             ".box-view .list-group-item h5 span",
@@ -1505,6 +1528,26 @@
           console.log("Generated Sidenotes URL:", url);
 
           return url;
+        },
+
+        buildSidenotesShortcutURL(payload) {
+          const shortcut = this.config.SIDENOTES_SHORTCUT_NAME;
+          const text = JSON.stringify(payload);
+          const url = `shortcuts://run-shortcut?name=${encodeURIComponent(shortcut)}&input=text&text=${encodeURIComponent(text)}`;
+
+          console.log("Generated Sidenotes Shortcut URL:", url);
+
+          return url;
+        },
+
+        buildDatestampTitle() {
+          const now = new Date();
+          const yyyy = now.getFullYear();
+          const mm = String(now.getMonth() + 1).padStart(2, "0");
+          const dd = String(now.getDate()).padStart(2, "0");
+          const hh = String(now.getHours()).padStart(2, "0");
+          const min = String(now.getMinutes()).padStart(2, "0");
+          return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
         },
 
         launch(url, appName = "App") {
@@ -1614,13 +1657,14 @@
           this.launch(url, "Antinote");
         },
 
-        addToSidenotes() {
+        addToSidenotes(mode = this.config.SIDENOTES_MODE) {
           const date = Utils.formatDate(new Date(), "MM/DD/YY");
           const time = new Date().toLocaleTimeString("en-US", {
             hour: "2-digit",
             minute: "2-digit",
           });
           const client = this.getClientFirstLast();
+          const clientLastFirst = this.getClientLastFirst();
           const pageUrl = window.location.href;
 
           const subHeader = client
@@ -1640,7 +1684,16 @@
             }
           }
 
-          const url = this.buildSidenotesURL(content);
+          const useShortcut = mode === "shortcut";
+          const url = useShortcut
+            ? this.buildSidenotesShortcutURL({
+                folderName: clientLastFirst || "Unknown Case",
+                noteTitle: this.buildDatestampTitle(),
+                clientFirstLast: client || "",
+                sourceUrl: pageUrl,
+                content,
+              })
+            : this.buildSidenotesURL(content);
           this.launch(url, "Sidenotes");
         },
 
@@ -1651,6 +1704,7 @@
                     .jjk-antinote-btn:hover{opacity:1}
                     .jjk-antinote-btn.append{background:#6f42c1}
                     .jjk-antinote-btn.sidenotes{background:#0f766e}
+                .jjk-antinote-btn.sidenotes-url{background:#0b5ed7}
                 `);
 
           const wrap = document.createElement("div");
@@ -1669,11 +1723,17 @@
           const sidenotesBtn = document.createElement("button");
           sidenotesBtn.className = "jjk-antinote-btn sidenotes";
           sidenotesBtn.textContent = "📚 Sidenotes";
-          sidenotesBtn.onclick = () => this.addToSidenotes();
+          sidenotesBtn.onclick = () => this.addToSidenotes("shortcut");
+
+          const sidenotesUrlBtn = document.createElement("button");
+          sidenotesUrlBtn.className = "jjk-antinote-btn sidenotes-url";
+          sidenotesUrlBtn.textContent = "🔗 Sidenotes URL";
+          sidenotesUrlBtn.onclick = () => this.addToSidenotes("url");
 
           wrap.appendChild(createBtn);
           wrap.appendChild(appendBtn);
           wrap.appendChild(sidenotesBtn);
+          wrap.appendChild(sidenotesUrlBtn);
           document.body.appendChild(wrap);
 
           document.addEventListener("keydown", (e) => {
