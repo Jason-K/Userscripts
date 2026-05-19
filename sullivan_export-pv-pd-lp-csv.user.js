@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sullivan PV/PD/LP Export Results to CSV
 // @namespace    https://github.com/Jason-K
-// @version      1.1
+// @version      1.2
 // @author       Jason K.
 // @description  Adds an Export Results to CSV button on the PV of PD and LP calculator page.
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
@@ -17,8 +17,7 @@
   const SCRIPT_BUTTON_ID = 'sullivan-export-results-csv-btn';
   const SCRIPT_APPEND_BUTTON_ID = 'sullivan-append-results-csv-btn';
   const CALCULATOR_SELECTOR = '#calculator';
-  const RESULTS_SELECTOR = '#calculator-results';
-  const CSV_HEADER = ['Section', 'Subsection', 'Label', 'Value'];
+  const RESULTS_SELECTOR = "#calculator-results";
 
   let lastUrl = location.href;
   let appendFileHandle = null;
@@ -135,49 +134,154 @@
     return rows;
   }
 
-  function buildCsvRowsOnly(rows) {
-    const lines = [];
+  function buildCsvTextFromPairs(pairs) {
+    return pairs
+      .map(([colA, colB]) => `${csvEscape(colA)},${csvEscape(colB)}`)
+      .join("\n");
+  }
 
-    rows.forEach((row) => {
-      lines.push([
-        csvEscape(row.section),
-        csvEscape(row.subsection),
-        csvEscape(row.label),
-        csvEscape(row.value),
-      ].join(','));
+  function getLegacyRowByNumber(rows, oneBasedRowNumber) {
+    const idx = oneBasedRowNumber - 1;
+    return rows[idx] || null;
+  }
+
+  function getLegacyValueByRow(rows, oneBasedRowNumber) {
+    const row = getLegacyRowByNumber(rows, oneBasedRowNumber);
+    return row ? row.value : "";
+  }
+
+  function findValueByLabelIncludes(rows, needle) {
+    const lowerNeedle = String(needle).toLowerCase();
+    const row = rows.find((item) =>
+      item.label.toLowerCase().includes(lowerNeedle),
+    );
+    return row ? row.value : "";
+  }
+
+  function formatClientName(rawName) {
+    const text = String(rawName || "").trim();
+    if (!text) return "unnamed applicant";
+
+    if (text.includes("|")) {
+      const parts = text
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (parts.length >= 2) {
+        return `${parts[1]}, ${parts[0]}`;
+      }
+    }
+
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length >= 2) {
+      const first = words[0];
+      const last = words[words.length - 1];
+      return `${last}, ${first}`;
+    }
+
+    return text;
+  }
+
+  function sanitizeFilenamePart(value, fallback) {
+    const cleaned = String(value || "")
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[. ]+$/g, "");
+    return cleaned || fallback;
+  }
+
+  function getMappedValues(rows) {
+    const rawClientFromD3 =
+      getLegacyValueByRow(rows, 3) ||
+      findValueByLabelIncludes(rows, "Name of Injured Worker");
+    const dobFromD5 =
+      getLegacyValueByRow(rows, 5) ||
+      findValueByLabelIncludes(rows, "Date of Birth");
+    const mmiFromD9 =
+      getLegacyValueByRow(rows, 9) ||
+      findValueByLabelIncludes(rows, "PD Rating");
+    const commutationFromD11 =
+      getLegacyValueByRow(rows, 11) ||
+      findValueByLabelIncludes(rows, "Date of Calculation");
+
+    const percentPD =
+      getLegacyValueByRow(rows, 10) ||
+      findValueByLabelIncludes(rows, "PD Rating");
+    const interestRate =
+      getLegacyValueByRow(rows, 13) ||
+      findValueByLabelIncludes(rows, "Annual Discount Rate");
+    const colaRate =
+      getLegacyValueByRow(rows, 14) ||
+      findValueByLabelIncludes(rows, "Assumed COLA Increases");
+    const presentValue =
+      getLegacyValueByRow(rows, 36) ||
+      findValueByLabelIncludes(
+        rows,
+        "Gross total present value of PD and Life Pension with COLA applied",
+      );
+    const calcDate =
+      getLegacyValueByRow(rows, 11) ||
+      findValueByLabelIncludes(rows, "Date of Calculation");
+
+    return {
+      clientName: formatClientName(rawClientFromD3),
+      dob: dobFromD5,
+      mmi: mmiFromD9,
+      commutation: commutationFromD11,
+      percentPD,
+      interestRate,
+      colaRate,
+      presentValue,
+      calcDate,
+    };
+  }
+
+  function buildMasterPairs(rows) {
+    const mapped = getMappedValues(rows);
+
+    const pairs = [
+      ["Client", mapped.clientName],
+      ["DOB:", mapped.dob],
+      ["MMI:", mapped.mmi],
+      ["Commutation:", mapped.commutation],
+    ];
+
+    const sourceRows = [10, 13, 14];
+    for (let i = 17; i <= 37; i += 1) sourceRows.push(i);
+
+    sourceRows.forEach((rowNumber) => {
+      const row = getLegacyRowByNumber(rows, rowNumber);
+      if (!row) return;
+      pairs.push([row.label, row.value]);
     });
 
-    return lines.join('\n');
+    return pairs;
   }
 
-  function buildCsvText(rows) {
-    return [
-      CSV_HEADER.map(csvEscape).join(','),
-      buildCsvRowsOnly(rows),
-    ].filter(Boolean).join('\n');
+  function buildFilenameFromRows(rows) {
+    const mapped = getMappedValues(rows);
+
+    const clientName = sanitizeFilenamePart(
+      mapped.clientName,
+      "unnamed applicant",
+    );
+    const percentPD = sanitizeFilenamePart(mapped.percentPD, "unknown");
+    const colaRate = sanitizeFilenamePart(mapped.colaRate, "unknown");
+    const interestRate = sanitizeFilenamePart(mapped.interestRate, "unknown");
+    const presentValue = sanitizeFilenamePart(mapped.presentValue, "unknown");
+    const calcDate = sanitizeFilenamePart(mapped.calcDate, "unknown date");
+
+    return `${clientName} - ${percentPD} PD - COLA ${colaRate} IR ${interestRate} - ${presentValue} on ${calcDate}.csv`;
   }
 
-  function buildFilename() {
-    const date = new Date();
-    const stamp = [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, '0'),
-      String(date.getDate()).padStart(2, '0'),
-      String(date.getHours()).padStart(2, '0'),
-      String(date.getMinutes()).padStart(2, '0'),
-      String(date.getSeconds()).padStart(2, '0'),
-    ].join('');
-
-    return `sullivan_pv_pd_lp_results_${stamp}.csv`;
-  }
-
-  function downloadCsv(content) {
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  function downloadCsv(content, filename) {
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
+    const link = document.createElement("a");
 
     link.href = url;
-    link.download = buildFilename();
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -209,7 +313,10 @@
     const rows = collectAllRows();
     if (!rows) return;
 
-    downloadCsv(buildCsvText(rows));
+    const pairs = buildMasterPairs(rows);
+    const content = buildCsvTextFromPairs(pairs);
+    const filename = buildFilenameFromRows(rows);
+    downloadCsv(content, filename);
   }
 
   async function getAppendFileHandle() {
@@ -255,9 +362,8 @@
       const writable = await handle.createWritable({ keepExistingData: true });
       await writable.seek(existingFile.size);
 
-      const csvChunk = hasExistingData
-        ? `\n${buildCsvRowsOnly(rows)}`
-        : buildCsvText(rows);
+      const content = buildCsvTextFromPairs(buildMasterPairs(rows));
+      const csvChunk = hasExistingData ? `\n\n${content}` : content;
 
       await writable.write(csvChunk);
       await writable.close();
