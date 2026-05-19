@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.5
+// @version      3.6.6
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1531,11 +1531,9 @@
         },
 
         buildSidenotesShortcutURL(payload) {
-          const shortcut = this.config.SIDENOTES_SHORTCUT_NAME;
-          const text = JSON.stringify(payload);
-          const url = `shortcuts://run-shortcut?name=${encodeURIComponent(shortcut)}&input=text&text=${encodeURIComponent(text)}`;
+          const url = this.buildSidenotesURL(payload.content || "");
 
-          console.log("Generated Sidenotes Shortcut URL:", url);
+          console.log("Generated Sidenotes Shortcut fallback URL:", url);
 
           return url;
         },
@@ -1722,12 +1720,16 @@
 
           const sidenotesBtn = document.createElement("button");
           sidenotesBtn.className = "jjk-antinote-btn sidenotes";
-          sidenotesBtn.textContent = "📚 Sidenotes";
+          sidenotesBtn.textContent = "📚 Sidenotes (Structured)";
+          sidenotesBtn.title =
+            "Launches the Sidenotes note flow with case metadata";
           sidenotesBtn.onclick = () => this.addToSidenotes("shortcut");
 
           const sidenotesUrlBtn = document.createElement("button");
           sidenotesUrlBtn.className = "jjk-antinote-btn sidenotes-url";
-          sidenotesUrlBtn.textContent = "🔗 Sidenotes URL";
+          sidenotesUrlBtn.textContent = "🔗 Sidenotes (Direct)";
+          sidenotesUrlBtn.title =
+            "Launches Sidenotes using the direct text URL";
           sidenotesUrlBtn.onclick = () => this.addToSidenotes("url");
 
           wrap.appendChild(createBtn);
