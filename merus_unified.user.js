@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.7.1
+// @version      3.6.7.2
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1592,6 +1592,14 @@
           return { firstName, lastName };
         },
 
+        buildSidenotesFolderName(firstName, lastName, fallbackName) {
+          if (lastName && firstName) {
+            return `${lastName}, ${firstName}`;
+          }
+
+          return (fallbackName || "Unknown Case").trim();
+        },
+
         buildDatestampTitle() {
           const now = new Date();
           const yyyy = now.getFullYear();
@@ -1727,13 +1735,19 @@
             client,
             clientLastFirst,
           );
+          const folderName = this.buildSidenotesFolderName(
+            firstName,
+            lastName,
+            clientLastFirst,
+          );
 
           const useShortcut = mode === "shortcut";
           const url = useShortcut
             ? this.buildSidenotesShortcutURL({
-                folderName: clientLastFirst || "Unknown Case",
+                folderName,
                 noteTitle,
                 noteBody,
+                content: noteBody,
                 firstName,
                 lastName,
                 clientFirstLast: client || "",
