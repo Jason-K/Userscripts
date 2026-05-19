@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sullivan PV/PD/LP Export Results to CSV
 // @namespace    https://github.com/Jason-K
-// @version      1.3
+// @version      1.4
 // @author       Jason K.
 // @description  Adds an Export Results to CSV button on the PV of PD and LP calculator page.
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
@@ -233,14 +233,17 @@
       getLegacyValueByRow(rows, 3) ||
       findValueByLabelIncludes(rows, "Name of Injured Worker");
     const dobFromD5 =
+      findInputValueByLabelIncludes(rows, "Date of Birth") ||
       getLegacyValueByRow(rows, 5) ||
       findValueByLabelIncludes(rows, "Date of Birth");
     const mmiFromD9 =
+      findInputValueByLabelIncludes(rows, "PD Rating") ||
       getLegacyValueByRow(rows, 9) ||
       findValueByLabelIncludes(rows, "PD Rating");
     const commutationFromD11 =
+      findInputValueByLabelIncludes(rows, "Average Weekly Earnings") ||
       getLegacyValueByRow(rows, 11) ||
-      findValueByLabelIncludes(rows, "Date of Calculation");
+      findValueByLabelIncludes(rows, "Average Weekly Earnings");
 
     const percentPD = normalizeNumericText(
       findInputValueByLabelIncludes(rows, "PD Rating") ||
@@ -296,13 +299,29 @@
       ["Commutation:", mapped.commutation],
     ];
 
-    const sourceRows = [10, 13, 14];
-    for (let i = 17; i <= 37; i += 1) sourceRows.push(i);
+    const variableInputLabels = [
+      "Date of Calculation",
+      "Annual Discount Rate",
+      "Assumed COLA Increases",
+      "Calculation Mode",
+    ];
 
-    sourceRows.forEach((rowNumber) => {
-      const row = getLegacyRowByNumber(rows, rowNumber);
-      if (!row) return;
-      pairs.push([row.label, row.value]);
+    variableInputLabels.forEach((labelNeedle) => {
+      const row = rows.find(
+        (item) =>
+          item.section === "Inputs" &&
+          item.label.toLowerCase().includes(labelNeedle.toLowerCase()),
+      );
+      if (row && row.value) {
+        pairs.push([row.label, row.value]);
+      }
+    });
+
+    const orderedResultRows = rows.filter((item) => item.section === "Results");
+    orderedResultRows.forEach((row) => {
+      if (row.label && row.value) {
+        pairs.push([row.label, row.value]);
+      }
     });
 
     return pairs;
