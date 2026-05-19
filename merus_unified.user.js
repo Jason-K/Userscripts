@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.7
+// @version      3.6.7.1
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -131,16 +131,53 @@
             // Intercept fetch API
             // ─────────────────────────────────────────────────────────────────
             const originalFetch = window.fetch;
-            window.fetch = function(input, ...args) {
-                const url = typeof input === 'string' ? input : (input?.url || input?.toString() || '');
+            if (typeof originalFetch === "function") {
+              const wrappedFetch = function (input, ...args) {
+                const url =
+                  typeof input === "string"
+                    ? input
+                    : input?.url || input?.toString() || "";
                 if (self.shouldBlock(url)) {
-                    return Promise.resolve(new Response(
-                        JSON.stringify({ error: 'Rate limited by userscript' }),
-                        { status: 429, statusText: 'Too Many Requests (Throttled by Userscript)' }
-                    ));
+                  return Promise.resolve(
+                    new Response(
+                      JSON.stringify({ error: "Rate limited by userscript" }),
+                      {
+                        status: 429,
+                        statusText:
+                          "Too Many Requests (Throttled by Userscript)",
+                      },
+                    ),
+                  );
                 }
                 return originalFetch.call(this, input, ...args);
-            };
+              };
+
+              // In Firefox/userscript injected worlds, fetch can be read-only.
+              // If so, skip fetch interception and continue with XHR/focus guards.
+              const fetchDescriptor = Object.getOwnPropertyDescriptor(
+                window,
+                "fetch",
+              );
+              const canAssignFetch =
+                !fetchDescriptor ||
+                fetchDescriptor.writable ||
+                typeof fetchDescriptor.set === "function";
+
+              if (canAssignFetch) {
+                try {
+                  window.fetch = wrappedFetch;
+                } catch (e) {
+                  console.warn(
+                    "⚠️ Could not patch fetch (continuing without fetch throttle):",
+                    e,
+                  );
+                }
+              } else {
+                console.warn(
+                  "⚠️ window.fetch is read-only; fetch throttling disabled in this context",
+                );
+              }
+            }
 
             // ─────────────────────────────────────────────────────────────────
             // Debounce synthetic focus events (the root cause)
