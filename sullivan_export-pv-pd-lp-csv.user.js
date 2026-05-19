@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sullivan PV/PD/LP Export Results to CSV
 // @namespace    https://github.com/Jason-K
-// @version      1.7
+// @version      1.7.1
 // @author       Jason K.
 // @description  Adds an Export Results to CSV button on the PV of PD and LP calculator page.
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
@@ -474,6 +474,16 @@
       .join("\n");
   }
 
+  function buildClipboardValuesOnly(entries) {
+    return entries
+      .map((entry) =>
+        String(entry.value ?? "")
+          .replace(/\r?\n/g, " ")
+          .trim(),
+      )
+      .join("\n");
+  }
+
   function getEntryValue(entries, key) {
     const entry = entries.find((item) => item.key === key);
     return entry ? entry.value : "";
@@ -568,7 +578,7 @@
 
     try {
       const entries = buildTemplateEntries(calculatorRoot);
-      const content = buildCsvTextFromTemplateEntries(entries);
+      const content = buildClipboardValuesOnly(entries);
 
       if (
         navigator.clipboard &&
