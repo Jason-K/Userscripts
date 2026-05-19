@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sullivan PV/PD/LP Export Results to CSV
 // @namespace    https://github.com/Jason-K
-// @version      1.5
+// @version      1.6
 // @author       Jason K.
 // @description  Adds an Export Results to CSV button on the PV of PD and LP calculator page.
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
@@ -20,7 +20,6 @@
   const RESULTS_SELECTOR = "#calculator-results";
 
   let lastUrl = location.href;
-  let appendFileHandle = null;
 
   function csvEscape(value) {
     const text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
@@ -560,62 +559,36 @@
     downloadCsv(content, filename);
   }
 
-  async function getAppendFileHandle() {
-    if (appendFileHandle) return appendFileHandle;
-
-    if (typeof window.showSaveFilePicker !== 'function') {
-      window.alert(
-        'Append mode is not supported by this browser/userscript manager. Use Export Results to CSV instead.'
-      );
-      return null;
-    }
-
-    try {
-      appendFileHandle = await window.showSaveFilePicker({
-        suggestedName: 'sullivan_pv_pd_lp_results.csv',
-        types: [
-          {
-            description: 'CSV file',
-            accept: { 'text/csv': ['.csv'] },
-          },
-        ],
-      });
-      return appendFileHandle;
-    } catch (error) {
-      if (error && error.name !== 'AbortError') {
-        window.alert(`Unable to open CSV file picker: ${error.message || error}`);
-      }
-      return null;
-    }
-  }
-
-  async function appendCalculatorData() {
+  async function copyValuesToClipboard() {
     const calculatorRoot = document.querySelector(CALCULATOR_SELECTOR);
     if (!calculatorRoot) {
       window.alert("Calculator container was not found.");
       return;
     }
 
-    const handle = await getAppendFileHandle();
-    if (!handle) return;
-
     try {
-      const existingFile = await handle.getFile();
-      const hasExistingData = existingFile.size > 0;
-
-      const writable = await handle.createWritable({ keepExistingData: true });
-      await writable.seek(existingFile.size);
-
       const entries = buildTemplateEntries(calculatorRoot);
       const content = buildCsvTextFromTemplateEntries(entries);
-      const csvChunk = hasExistingData ? `\n\n${content}` : content;
 
-      await writable.write(csvChunk);
-      await writable.close();
+      if (
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function"
+      ) {
+        await navigator.clipboard.writeText(content);
+      } else {
+        const tempTextArea = document.createElement("textarea");
+        tempTextArea.value = content;
+        tempTextArea.style.position = "fixed";
+        tempTextArea.style.left = "-9999px";
+        document.body.appendChild(tempTextArea);
+        tempTextArea.select();
+        document.execCommand("copy");
+        tempTextArea.remove();
+      }
 
-      window.alert('Results appended to CSV successfully.');
+      window.alert("Values copied to clipboard.");
     } catch (error) {
-      window.alert(`Failed to append results: ${error.message || error}`);
+      window.alert(`Failed to copy values: ${error.message || error}`);
     }
   }
 
@@ -649,10 +622,10 @@
     appendButton.id = SCRIPT_APPEND_BUTTON_ID;
     appendButton.type = 'button';
     appendButton.className = 'button black-button';
-    appendButton.textContent = 'Append to CSV';
+    appendButton.textContent = "Copy Values to Clipboard";
     appendButton.style.marginRight = '8px';
     appendButton.addEventListener('click', () => {
-      appendCalculatorData();
+      copyValuesToClipboard();
     });
 
     buttonContainer.insertBefore(appendButton, buttonContainer.firstChild);
