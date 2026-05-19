@@ -14,5 +14,6 @@
     "pdrater_copy-rating.user.js",
     "uptodate_copy-citations.user.js",
     "sullivan_copy-citations.user.js",
+    "sullivan_export-pv-pd-lp-csv.user.js",
     "wikipedia_copy-citations.user.js"
 ]
