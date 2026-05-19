@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sullivan PV/PD/LP Export Results to CSV
 // @namespace    https://github.com/Jason-K
-// @version      1.2
+// @version      1.3
 // @author       Jason K.
 // @description  Adds an Export Results to CSV button on the PV of PD and LP calculator page.
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
@@ -158,6 +158,42 @@
     return row ? row.value : "";
   }
 
+  function findInputValueByLabelIncludes(rows, needle) {
+    const lowerNeedle = String(needle).toLowerCase();
+    const row = rows.find(
+      (item) =>
+        item.section === "Inputs" &&
+        item.label.toLowerCase().includes(lowerNeedle),
+    );
+    return row ? row.value : "";
+  }
+
+  function findResultValueByLabelIncludes(rows, needle) {
+    const lowerNeedle = String(needle).toLowerCase();
+    const row = rows.find(
+      (item) =>
+        item.section === "Results" &&
+        item.label.toLowerCase().includes(lowerNeedle),
+    );
+    return row ? row.value : "";
+  }
+
+  function normalizeNumericText(value) {
+    const text = String(value || "").trim();
+    const match = text.match(/-?\d+(?:\.\d+)?/);
+    return match ? match[0] : text;
+  }
+
+  function formatDateDots(value) {
+    const text = String(value || "").trim();
+    const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!match) return text;
+    const mm = match[1].padStart(2, "0");
+    const dd = match[2].padStart(2, "0");
+    const yyyy = match[3];
+    return `${mm}.${dd}.${yyyy}`;
+  }
+
   function formatClientName(rawName) {
     const text = String(rawName || "").trim();
     if (!text) return "unnamed applicant";
@@ -193,6 +229,7 @@
 
   function getMappedValues(rows) {
     const rawClientFromD3 =
+      findInputValueByLabelIncludes(rows, "Name of Injured Worker") ||
       getLegacyValueByRow(rows, 3) ||
       findValueByLabelIncludes(rows, "Name of Injured Worker");
     const dobFromD5 =
@@ -205,24 +242,36 @@
       getLegacyValueByRow(rows, 11) ||
       findValueByLabelIncludes(rows, "Date of Calculation");
 
-    const percentPD =
-      getLegacyValueByRow(rows, 10) ||
-      findValueByLabelIncludes(rows, "PD Rating");
-    const interestRate =
-      getLegacyValueByRow(rows, 13) ||
-      findValueByLabelIncludes(rows, "Annual Discount Rate");
-    const colaRate =
-      getLegacyValueByRow(rows, 14) ||
-      findValueByLabelIncludes(rows, "Assumed COLA Increases");
+    const percentPD = normalizeNumericText(
+      findInputValueByLabelIncludes(rows, "PD Rating") ||
+        getLegacyValueByRow(rows, 10) ||
+        findValueByLabelIncludes(rows, "PD Rating"),
+    );
+    const interestRate = normalizeNumericText(
+      findInputValueByLabelIncludes(rows, "Annual Discount Rate") ||
+        getLegacyValueByRow(rows, 13) ||
+        findValueByLabelIncludes(rows, "Annual Discount Rate"),
+    );
+    const colaRate = normalizeNumericText(
+      findInputValueByLabelIncludes(rows, "Assumed COLA Increases") ||
+        getLegacyValueByRow(rows, 14) ||
+        findValueByLabelIncludes(rows, "Assumed COLA Increases"),
+    );
     const presentValue =
+      findResultValueByLabelIncludes(
+        rows,
+        "Difference between Gross and PV of expected future PD and LP payments",
+      ) ||
       getLegacyValueByRow(rows, 36) ||
-      findValueByLabelIncludes(
+      findResultValueByLabelIncludes(
         rows,
         "Gross total present value of PD and Life Pension with COLA applied",
       );
-    const calcDate =
-      getLegacyValueByRow(rows, 11) ||
-      findValueByLabelIncludes(rows, "Date of Calculation");
+    const calcDate = formatDateDots(
+      findInputValueByLabelIncludes(rows, "Date of Calculation") ||
+        getLegacyValueByRow(rows, 11) ||
+        findValueByLabelIncludes(rows, "Date of Calculation"),
+    );
 
     return {
       clientName: formatClientName(rawClientFromD3),
