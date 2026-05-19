@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.6
+// @version      3.6.7
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -238,7 +238,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.6.5 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.6.6 initializing modules...",
       );
 
       // ============================================================================
@@ -1531,11 +1531,28 @@
         },
 
         buildSidenotesShortcutURL(payload) {
-          const url = this.buildSidenotesURL(payload.content || "");
+          const shortcut = this.config.SIDENOTES_SHORTCUT_NAME;
+          const text = JSON.stringify(payload);
+          const url = `shortcuts://run-shortcut?name=${encodeURIComponent(shortcut)}&input=text&text=${encodeURIComponent(text)}`;
 
-          console.log("Generated Sidenotes Shortcut fallback URL:", url);
+          console.log("Generated Sidenotes Shortcut URL:", url);
 
           return url;
+        },
+
+        buildSidenotesNoteBody(clientFirstLast, activeDocument) {
+          const safeClient = (clientFirstLast || "Unknown Client").trim();
+          const safeActiveDocument = (
+            activeDocument || "Untitled Document"
+          ).trim();
+          return `CLIENT: ${safeClient}\nTOPIC: \n---\n\n## ${safeActiveDocument}\n`;
+        },
+
+        getNameParts(clientFirstLast, clientLastFirst) {
+          const firstName =
+            (clientFirstLast || "").trim().split(/\s+/)[0] || "";
+          const lastName = (clientLastFirst || "").split(",")[0]?.trim() || "";
+          return { firstName, lastName };
         },
 
         buildDatestampTitle() {
@@ -1664,34 +1681,32 @@
           const client = this.getClientFirstLast();
           const clientLastFirst = this.getClientLastFirst();
           const pageUrl = window.location.href;
-
-          const subHeader = client
-            ? `## ${date} ${time} — ${client}`
-            : `## ${date} ${time}`;
-          let content = `---\n\n${subHeader}\n\n`;
-
-          if (this.isEmailView()) {
-            const { sentDate, subject } = this.getEmailInfo();
-            content += `**Sent:** ${sentDate}\n**Subject:** ${subject}\n**Link:** ${pageUrl}\n\n`;
-          } else {
-            const activeDoc = this.getActiveDocument();
-            if (activeDoc) {
-              content += `**Active Document:** ${activeDoc}\n**Link:** ${pageUrl}\n\n`;
-            } else {
-              content += `**Link:** ${pageUrl}\n\n`;
-            }
-          }
+          const activeDoc = this.getActiveDocument();
+          const activeDocument =
+            activeDoc || this.getEmailInfo().subject || "Untitled Document";
+          const noteTitle = this.buildDatestampTitle();
+          const noteBody = this.buildSidenotesNoteBody(client, activeDocument);
+          const { firstName, lastName } = this.getNameParts(
+            client,
+            clientLastFirst,
+          );
 
           const useShortcut = mode === "shortcut";
           const url = useShortcut
             ? this.buildSidenotesShortcutURL({
                 folderName: clientLastFirst || "Unknown Case",
-                noteTitle: this.buildDatestampTitle(),
+                noteTitle,
+                noteBody,
+                firstName,
+                lastName,
                 clientFirstLast: client || "",
+                clientLastFirst: clientLastFirst || "",
+                date,
+                time,
+                activeDocument,
                 sourceUrl: pageUrl,
-                content,
               })
-            : this.buildSidenotesURL(content);
+            : this.buildSidenotesURL(noteBody);
           this.launch(url, "Sidenotes");
         },
 
