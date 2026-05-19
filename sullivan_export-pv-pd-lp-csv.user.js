@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sullivan PV/PD/LP Export Results to CSV
 // @namespace    https://github.com/Jason-K
-// @version      1.4
+// @version      1.4.1
 // @author       Jason K.
 // @description  Adds an Export Results to CSV button on the PV of PD and LP calculator page.
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
@@ -237,9 +237,9 @@
       getLegacyValueByRow(rows, 5) ||
       findValueByLabelIncludes(rows, "Date of Birth");
     const mmiFromD9 =
-      findInputValueByLabelIncludes(rows, "PD Rating") ||
-      getLegacyValueByRow(rows, 9) ||
-      findValueByLabelIncludes(rows, "PD Rating");
+      findInputValueByLabelIncludes(rows, "Date of Calculation") ||
+      getLegacyValueByRow(rows, 11) ||
+      findValueByLabelIncludes(rows, "Date of Calculation");
     const commutationFromD11 =
       findInputValueByLabelIncludes(rows, "Average Weekly Earnings") ||
       getLegacyValueByRow(rows, 11) ||
