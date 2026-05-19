@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.7.2
+// @version      3.6.7.3
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1450,6 +1450,7 @@
           REENTRY_MS: 1500,
           SIDENOTES_MODE: "shortcut",
           SIDENOTES_SHORTCUT_NAME: "Merus Add Sidenote",
+          ENABLE_SIDENOTES_DIRECT: false,
         },
 
         showToast(message) {
@@ -1577,12 +1578,17 @@
           return url;
         },
 
-        buildSidenotesNoteBody(clientFirstLast, activeDocument) {
+        buildSidenotesNoteBody(clientFirstLast, activeDocument, sourceUrl) {
           const safeClient = (clientFirstLast || "Unknown Client").trim();
           const safeActiveDocument = (
             activeDocument || "Untitled Document"
           ).trim();
-          return `CLIENT: ${safeClient}\nTOPIC: \n---\n\n## ${safeActiveDocument}\n`;
+          const safeSourceUrl = (sourceUrl || "").trim();
+          const activeDocumentMarkdown = safeSourceUrl
+            ? `[${safeActiveDocument}](${safeSourceUrl})`
+            : safeActiveDocument;
+
+          return `CLIENT: ${safeClient}\nTOPIC: \n---\n\n## ${activeDocumentMarkdown}\n`;
         },
 
         getNameParts(clientFirstLast, clientLastFirst) {
@@ -1730,7 +1736,11 @@
           const activeDocument =
             activeDoc || this.getEmailInfo().subject || "Untitled Document";
           const noteTitle = this.buildDatestampTitle();
-          const noteBody = this.buildSidenotesNoteBody(client, activeDocument);
+          const noteBody = this.buildSidenotesNoteBody(
+            client,
+            activeDocument,
+            pageUrl,
+          );
           const { firstName, lastName } = this.getNameParts(
             client,
             clientLastFirst,
@@ -1744,6 +1754,7 @@
           const useShortcut = mode === "shortcut";
           const url = useShortcut
             ? this.buildSidenotesShortcutURL({
+                action: "create",
                 folderName,
                 noteTitle,
                 noteBody,
@@ -1758,6 +1769,55 @@
                 sourceUrl: pageUrl,
               })
             : this.buildSidenotesURL(noteBody);
+          this.launch(url, "Sidenotes");
+        },
+
+        appendToSidenotes() {
+          const date = Utils.formatDate(new Date(), "MM/DD/YY");
+          const time = new Date().toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const client = this.getClientFirstLast();
+          const clientLastFirst = this.getClientLastFirst();
+          const pageUrl = window.location.href;
+          const activeDoc = this.getActiveDocument();
+          const activeDocument =
+            activeDoc || this.getEmailInfo().subject || "Untitled Document";
+          const noteTitle = this.buildDatestampTitle();
+          const { firstName, lastName } = this.getNameParts(
+            client,
+            clientLastFirst,
+          );
+          const folderName = this.buildSidenotesFolderName(
+            firstName,
+            lastName,
+            clientLastFirst,
+          );
+
+          const linkText = pageUrl
+            ? `[${activeDocument}](${pageUrl})`
+            : activeDocument;
+          const appendBody =
+            `---\n\n` +
+            `${client ? `## ${date} ${time} - ${client}` : `## ${date} ${time}`}\n\n` +
+            `Active Document: ${linkText}\n\n`;
+
+          const url = this.buildSidenotesShortcutURL({
+            action: "append",
+            folderName,
+            noteTitle,
+            appendBody,
+            content: appendBody,
+            firstName,
+            lastName,
+            clientFirstLast: client || "",
+            clientLastFirst: clientLastFirst || "",
+            date,
+            time,
+            activeDocument,
+            sourceUrl: pageUrl,
+          });
           this.launch(url, "Sidenotes");
         },
 
@@ -1791,17 +1851,26 @@
             "Launches the Sidenotes note flow with case metadata";
           sidenotesBtn.onclick = () => this.addToSidenotes("shortcut");
 
-          const sidenotesUrlBtn = document.createElement("button");
-          sidenotesUrlBtn.className = "jjk-antinote-btn sidenotes-url";
-          sidenotesUrlBtn.textContent = "🔗 Sidenotes (Direct)";
-          sidenotesUrlBtn.title =
-            "Launches Sidenotes using the direct text URL";
-          sidenotesUrlBtn.onclick = () => this.addToSidenotes("url");
+          const sidenotesAppendBtn = document.createElement("button");
+          sidenotesAppendBtn.className = "jjk-antinote-btn sidenotes-append";
+          sidenotesAppendBtn.textContent = "🧩 Sidenotes Append";
+          sidenotesAppendBtn.title =
+            "Appends a timestamped section to a Sidenotes note via Shortcut";
+          sidenotesAppendBtn.onclick = () => this.appendToSidenotes();
 
           wrap.appendChild(createBtn);
           wrap.appendChild(appendBtn);
           wrap.appendChild(sidenotesBtn);
-          wrap.appendChild(sidenotesUrlBtn);
+          wrap.appendChild(sidenotesAppendBtn);
+          if (this.config.ENABLE_SIDENOTES_DIRECT) {
+            const sidenotesUrlBtn = document.createElement("button");
+            sidenotesUrlBtn.className = "jjk-antinote-btn sidenotes-url";
+            sidenotesUrlBtn.textContent = "🔗 Sidenotes (Direct)";
+            sidenotesUrlBtn.title =
+              "Launches Sidenotes using the direct text URL";
+            sidenotesUrlBtn.onclick = () => this.addToSidenotes("url");
+            wrap.appendChild(sidenotesUrlBtn);
+          }
           document.body.appendChild(wrap);
 
           document.addEventListener("keydown", (e) => {
