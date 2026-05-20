@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.7.3
+// @version      3.6.7.4
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1547,6 +1547,31 @@
           return { sentDate, subject };
         },
 
+        getActiveDocumentTitle() {
+          const activeDoc = this.getActiveDocument();
+          if (activeDoc) return activeDoc;
+
+          const { subject } = this.getEmailInfo();
+          if (subject) return subject;
+
+          return (document.title || "Active Document").trim();
+        },
+
+        copyActiveDocumentMarkdownLink() {
+          const title = this.getActiveDocumentTitle();
+          const pageUrl = window.location.href;
+          const markdownLink = `[${title}](${pageUrl})`;
+
+          ClipboardUtils.copyText(markdownLink)
+            .then(() => {
+              this.showToast("Markdown link copied to clipboard");
+            })
+            .catch((err) => {
+              console.warn("Could not copy markdown link:", err);
+              this.showToast("Could not copy markdown link");
+            });
+        },
+
         buildAntinoteURL(action, content, title) {
           const base = "antinote://x-callback-url";
           let url = `${base}/${action}?content=${encodeURIComponent(content)}`;
@@ -1827,6 +1852,7 @@
                     .jjk-antinote-btn{padding:10px 14px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);background:#1f6feb;color:#fff !important;font:600 13px/1 -apple-system,sans-serif;cursor:pointer;border:none;opacity:.95}
                     .jjk-antinote-btn:hover{opacity:1}
                     .jjk-antinote-btn.append{background:#6f42c1}
+                    .jjk-antinote-btn.copy-link{background:#1f883d}
                     .jjk-antinote-btn.sidenotes{background:#0f766e}
                 .jjk-antinote-btn.sidenotes-url{background:#0b5ed7}
                 `);
@@ -1844,6 +1870,13 @@
           appendBtn.textContent = "➕ Append";
           appendBtn.onclick = () => this.appendToCurrent();
 
+          const copyLinkBtn = document.createElement("button");
+          copyLinkBtn.className = "jjk-antinote-btn copy-link";
+          copyLinkBtn.textContent = "🔗 Copy MD Link";
+          copyLinkBtn.title =
+            "Copies [active document title](current URL) to clipboard";
+          copyLinkBtn.onclick = () => this.copyActiveDocumentMarkdownLink();
+
           const sidenotesBtn = document.createElement("button");
           sidenotesBtn.className = "jjk-antinote-btn sidenotes";
           sidenotesBtn.textContent = "📚 Sidenotes (Structured)";
@@ -1860,6 +1893,7 @@
 
           wrap.appendChild(createBtn);
           wrap.appendChild(appendBtn);
+          wrap.appendChild(copyLinkBtn);
           wrap.appendChild(sidenotesBtn);
           wrap.appendChild(sidenotesAppendBtn);
           if (this.config.ENABLE_SIDENOTES_DIRECT) {
