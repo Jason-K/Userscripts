@@ -1,12 +1,13 @@
 // ==UserScript==
-// @name         Sullivan PV/PD/LP Export Results to CSV
+// @name         Sullivan PV Calculator Export to CSV
 // @namespace    https://github.com/Jason-K
-// @version      1.7.1
+// @version      1.8
 // @author       Jason K.
-// @description  Adds an Export Results to CSV button on the PV of PD and LP calculator page.
+// @description  Adds export and copy helpers for Sullivan PV calculators.
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
 // @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/sullivan_export-pv-pd-lp-csv.user.js
 // @match        https://app.sullivanoncomp.com/calculators/pv-of-pd-and-lp*
+// @match        https://app.sullivanoncomp.com/calculators/pv-of-ptd*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -18,6 +19,8 @@
   const SCRIPT_APPEND_BUTTON_ID = 'sullivan-append-results-csv-btn';
   const CALCULATOR_SELECTOR = '#calculator';
   const RESULTS_SELECTOR = "#calculator-results";
+  const PATH_PD_LP = "/calculators/pv-of-pd-and-lp";
+  const PATH_PTD = "/calculators/pv-of-ptd";
 
   let lastUrl = location.href;
 
@@ -269,7 +272,35 @@
     return valueNode ? valueNode.textContent.replace(/\s+/g, " ").trim() : "";
   }
 
-  function buildTemplateEntries(calculatorRoot) {
+  function getResultValueByLabelIncludes(root, needle, occurrence = 1) {
+    const lowerNeedle = String(needle).toLowerCase();
+    const containers = Array.from(
+      root.querySelectorAll(`${RESULTS_SELECTOR} .resultContainer`),
+    );
+    const matches = containers.filter((container) => {
+      const label = container.querySelector(".resultLabel");
+      if (!label) return false;
+      return label.textContent
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase()
+        .includes(lowerNeedle);
+    });
+
+    const container = matches[occurrence - 1];
+    if (!container) return "";
+
+    const valueNode = container.querySelector(".resultValue");
+    return valueNode ? valueNode.textContent.replace(/\s+/g, " ").trim() : "";
+  }
+
+  function getCalculatorType() {
+    if (location.pathname.startsWith(PATH_PTD)) return "ptd";
+    if (location.pathname.startsWith(PATH_PD_LP)) return "pdlp";
+    return "unknown";
+  }
+
+  function buildTemplateEntriesPdlp(calculatorRoot) {
     const entries = [
       {
         key: "client",
@@ -468,6 +499,144 @@
     return entries;
   }
 
+  function buildTemplateEntriesPtd(calculatorRoot) {
+    const entries = [
+      {
+        key: "client",
+        label: "Client:",
+        value: getClientValue(calculatorRoot),
+      },
+      {
+        key: "dateBirth",
+        label: "Date, birth:",
+        value: getInputValueBySelectors(calculatorRoot, ["#date-of-birth"]),
+      },
+      {
+        key: "dateInjury",
+        label: "Date, injury:",
+        value: getInputValueBySelectors(calculatorRoot, ["#date-of-injury"]),
+      },
+      {
+        key: "dateMmi",
+        label: "Date, MMI:",
+        value: getInputValueBySelectors(calculatorRoot, [
+          "#pd-commencement-outfielder",
+          "#ptd-commencement-date",
+          "#pd-commencement-date",
+        ]),
+      },
+      {
+        key: "dateCommutation",
+        label: "Date, commutation:",
+        value: getInputValueBySelectors(calculatorRoot, [
+          "#date-of-calculation",
+        ]),
+      },
+      {
+        key: "rateInterest",
+        label: "Rate, interest:",
+        value: getInputValueBySelectors(calculatorRoot, ["#interest-rate"]),
+      },
+      {
+        key: "rateCola",
+        label: "Rate, COLA:",
+        value: getInputValueBySelectors(calculatorRoot, [
+          "#assumed-annual-increases",
+        ]),
+      },
+      {
+        key: "rateAwe",
+        label: "Rate, AWE:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "Average Weekly Earnings",
+          1,
+        ),
+      },
+      {
+        key: "rateStartingPtd",
+        label: "Rate, starting PTD:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "PTD weekly rate at start date",
+          1,
+        ),
+      },
+      {
+        key: "rateDocPtd",
+        label: "Rate, date of commutation:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "PTD weekly rate on DOC",
+          1,
+        ),
+      },
+      {
+        key: "calculationMode",
+        label: "Calculation Mode:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "Calculation Mode",
+          1,
+        ),
+      },
+      {
+        key: "ageCommutation",
+        label: "Age, commutation",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "Age on date of calculation",
+          1,
+        ),
+      },
+      {
+        key: "lifeExpectancyCommutation",
+        label: "Life expectancy, commutation:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "Life Expectancy on date of calculation",
+          1,
+        ),
+      },
+      {
+        key: "ptdAccrued",
+        label: "PTD, accrued:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "PTD paid prior to DOC",
+          1,
+        ),
+      },
+      {
+        key: "ptdGrossRemaining",
+        label: "PTD, gross remaining:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "Gross Value of Remaining PTD Payments with COLA applied",
+          1,
+        ),
+      },
+      {
+        key: "ptdPvRemaining",
+        label: "PTD, PV remaining:",
+        value: getResultValueByLabelIncludes(
+          calculatorRoot,
+          "Present Value of Remaining PTD Payments with COLA applied",
+          1,
+        ),
+      },
+    ];
+
+    return entries;
+  }
+
+  function buildTemplateEntries(calculatorRoot) {
+    const calculatorType = getCalculatorType();
+    if (calculatorType === "ptd")
+      return buildTemplateEntriesPtd(calculatorRoot);
+    return buildTemplateEntriesPdlp(calculatorRoot);
+  }
+
   function buildCsvTextFromTemplateEntries(entries) {
     return entries
       .map((entry) => `${csvEscape(entry.label)},${csvEscape(entry.value)}`)
@@ -490,11 +659,15 @@
   }
 
   function buildFilenameFromEntries(entries) {
+    const calculatorType = getCalculatorType();
     const clientRaw = getEntryValue(entries, "client");
     const percentPdRaw = getEntryValue(entries, "pdPercent");
     const colaRaw = getEntryValue(entries, "rateCola");
     const interestRaw = getEntryValue(entries, "rateInterest");
-    const presentValueRaw = getEntryValue(entries, "overallPvUnpaid");
+    const presentValueRaw =
+      calculatorType === "ptd"
+        ? getEntryValue(entries, "ptdPvRemaining")
+        : getEntryValue(entries, "overallPvUnpaid");
     const calcDateRaw = getEntryValue(entries, "dateCommutation");
 
     const clientName = sanitizeFilenamePart(
@@ -503,7 +676,7 @@
     );
     const percentPD = sanitizeFilenamePart(
       normalizeNumericText(percentPdRaw),
-      "unknown",
+      calculatorType === "ptd" ? "PTD" : "unknown",
     );
     const colaRate = sanitizeFilenamePart(
       normalizeNumericText(colaRaw),
@@ -519,7 +692,8 @@
       "unknown date",
     );
 
-    return `${clientName} - ${percentPD} PD - COLA ${colaRate} IR ${interestRate} - ${presentValue} on ${calcDate}.csv`;
+    const benefitTag = calculatorType === "ptd" ? "PTD" : `${percentPD} PD`;
+    return `${clientName} - ${benefitTag} - COLA ${colaRate} IR ${interestRate} - ${presentValue} on ${calcDate}.csv`;
   }
 
   function downloadCsv(content, filename) {
@@ -648,7 +822,10 @@
         lastUrl = location.href;
       }
 
-      if (location.pathname.startsWith('/calculators/pv-of-pd-and-lp')) {
+      if (
+        location.pathname.startsWith(PATH_PD_LP) ||
+        location.pathname.startsWith(PATH_PTD)
+      ) {
         ensureExportButton();
       }
     }, 1200);
