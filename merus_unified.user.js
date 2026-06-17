@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.0.2
+// @version      3.9.1.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -9,6 +9,7 @@
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      meruscase.com
 // @connect      meruscase-customer-uploads.s3.amazonaws.com
@@ -281,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.9.0.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.9.1.0 initializing modules...",
       );
 
       // ============================================================================
@@ -956,18 +957,45 @@
       // ============================================================================
 
       const QuickPDFDownload = {
-        // Stores the current case client name in GM storage so the S3 tab
-        // can read it when the user clicks "Save to Inbox".
-        storeContextMeta() {
-          if (!document.querySelector('#lpClientName')) return;
-          try {
-            const client = Utils.getCaseName();
-            if (!client || client === 'Unknown Case') return;
-            GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
-            console.log('[MerusUtils] stored meta for client:', client);
-          } catch (e) {
-            console.warn('[MerusUtils] storeContextMeta failed:', e);
-          }
+        // Build the sentinel filename from the client name and the final S3 URL
+        // (which carries the date in its path and the original filename).
+        // Mirrors S3InboxButton.buildSentinelName() but works on the MerusCase
+        // page before any navigation occurs.
+        _buildSentinelName(client, finalUrl) {
+          let pathname;
+          try { pathname = new URL(finalUrl).pathname; } catch (_) { pathname = finalUrl; }
+
+          const dateSeg = pathname.match(/\/(\d{4})-(\d{2})-(\d{2})\//);
+          const dateStr = dateSeg
+            ? `${dateSeg[1]}.${dateSeg[2]}.${dateSeg[3]}`
+            : 'Undated';
+
+          const filename = decodeURIComponent(pathname.split('/').pop() || 'document');
+          const extMatch = filename.match(/\.([a-z0-9]{1,6})$/i);
+          const ext     = extMatch ? extMatch[1].toLowerCase() : 'pdf';
+          const rawStem = filename.replace(/\.[^.]+$/, '');
+          const title   = rawStem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled';
+
+          const san = (s) => String(s).replace(/[<>:"/\\|?*\x00-\x1F]/g, '').replace(/\s+/g, ' ').trim();
+          const parts = [client, dateStr, title].map(s => san(s) || 'Unknown');
+          return `${parts.join(' ::: ')}.${ext}`;
+        },
+
+        // Trigger a browser download of `blob` with the given filename.
+        // Using a blob URL + <a download> avoids GM_download's colon
+        // sanitization issue (GM_download replaces ':' with '_' on macOS).
+        _saveBlob(blob, name) {
+          const objUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href     = objUrl;
+          a.download = name;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(objUrl);
+          }, 2000);
         },
 
         handleDownloadClick(event) {
@@ -976,21 +1004,53 @@
           const href = link.href;
           if (!href) return;
           // Prevent MerusCase's bubble-phase handler from opening its inline
-          // preview. We open the download URL in a new tab ourselves so the
-          // browser can follow the redirect to the S3 page, where
-          // S3InboxButton will inject the "Save to Inbox" button.
+          // preview lightbox; we handle the download ourselves.
           event.preventDefault();
-          this.storeContextMeta();
-          window.open(href, '_blank', 'noopener');
+
+          const client = Utils.getCaseName();
+          if (!client || client === 'Unknown Case') {
+            console.warn('[MerusUtils] no client name found — opening directly');
+            window.open(href, '_blank', 'noopener');
+            return;
+          }
+
+          // Also cache client name for the S3InboxButton fallback (non-Firefox).
+          try {
+            GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
+          } catch (_) {}
+
+          console.log('[MerusUtils] fetching document for client:', client);
+
+          // GM_xmlhttpRequest bypasses CORS and follows the meruscase.com →
+          // S3 redirect while sending meruscase.com session cookies. The
+          // finalUrl gives us the S3 path from which we extract date/title.
+          // Using a blob URL + <a download> instead of GM_download preserves
+          // the ::: delimiter characters on macOS APFS.
+          GM_xmlhttpRequest({
+            method: 'GET',
+            url: href,
+            responseType: 'blob',
+            onload: (resp) => {
+              try {
+                const finalUrl = resp.finalUrl || href;
+                const name = this._buildSentinelName(client, finalUrl);
+                this._saveBlob(resp.response, name);
+                console.log('[MerusUtils] saving to inbox as:', name);
+              } catch (err) {
+                console.error('[MerusUtils] save failed:', err);
+              }
+            },
+            onerror: (resp) => {
+              console.error('[MerusUtils] XHR error; opening directly', resp.status, resp.statusText);
+              window.open(href, '_blank', 'noopener');
+            },
+          });
         },
 
         init() {
           const handler = this.handleDownloadClick.bind(this);
           document.addEventListener('click', handler, true);
           document.addEventListener('auxclick', handler, true);
-          // Refresh stored metadata on every click so the S3 tab always finds
-          // a fresh client name regardless of which link was clicked.
-          document.addEventListener('click', () => this.storeContextMeta(), true);
           console.log('✓ Quick PDF download (inbox capture) enabled');
         },
       };
