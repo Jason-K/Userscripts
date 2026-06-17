@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.0.1
+// @version      3.9.0.2
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -281,7 +281,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.6.6 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.9.0.0 initializing modules...",
       );
 
       // ============================================================================
@@ -964,14 +964,24 @@
             const client = Utils.getCaseName();
             if (!client || client === 'Unknown Case') return;
             GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
+            console.log('[MerusUtils] stored meta for client:', client);
           } catch (e) {
-            // Non-fatal; GM_setValue unavailable in some sandbox modes
+            console.warn('[MerusUtils] storeContextMeta failed:', e);
           }
         },
 
-        handleDownloadClick(_event) {
-          // No-op: returning without preventDefault lets the browser open the
-          // PDF inline at the S3 URL. S3InboxButton on that tab handles saving.
+        handleDownloadClick(event) {
+          const link = event.target.closest('a[aria-label="Download Document"]');
+          if (!link) return;
+          const href = link.href;
+          if (!href) return;
+          // Prevent MerusCase's bubble-phase handler from opening its inline
+          // preview. We open the download URL in a new tab ourselves so the
+          // browser can follow the redirect to the S3 page, where
+          // S3InboxButton will inject the "Save to Inbox" button.
+          event.preventDefault();
+          this.storeContextMeta();
+          window.open(href, '_blank', 'noopener');
         },
 
         init() {
