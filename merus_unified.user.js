@@ -6,6 +6,7 @@
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
 // @match        https://meruscase-customer-uploads.s3.amazonaws.com/*
+// @match        file:///Users/jason/Downloads/_MerusInbox*
 // @grant        GM_addStyle
 // @grant        GM_download
 // @grant        GM_xmlhttpRequest
