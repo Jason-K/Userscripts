@@ -1,15 +1,19 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.7.0.0
+// @version      3.8.0.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
+// @match        https://meruscase-customer-uploads.s3.amazonaws.com/*
 // @grant        GM_addStyle
 // @grant        GM_download
 // @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @grant        unsafeWindow
 // @connect      meruscase.com
+// @connect      meruscase-customer-uploads.s3.amazonaws.com
 // @connect      self
 // @run-at       document-start
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_unified.user.js
@@ -1124,6 +1128,18 @@
           });
         },
 
+        // ---- store client name so S3 tab can retrieve it ----
+        storeContextMeta() {
+          if (!document.querySelector('#lpClientName')) return;
+          try {
+            const client = Utils.getCaseName();
+            if (!client || client === 'Unknown Case') return;
+            GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
+          } catch (e) {
+            // Non-fatal; GM_setValue unavailable in some sandbox modes
+          }
+        },
+
         // ---- rewritten click handler ----
         handleDownloadClick(event) {
           const link = event.target.closest(
@@ -1134,6 +1150,9 @@
 
           const rawHref = link.getAttribute("href");
           if (!rawHref) return;
+
+          // Persist client name before going async so S3 tab can always find it
+          this.storeContextMeta();
 
           event.preventDefault();
           const href = new URL(rawHref, window.location.origin).href;
@@ -1154,13 +1173,16 @@
               const filename = this.runFilenameLogic();
               ClipboardUtils.copyText(filename).catch(() => {});
               window.open(href, "_blank");
-            };);
+            });
         },
 
         init() {
           const handler = this.handleDownloadClick.bind(this);
           document.addEventListener("click", handler, true);
           document.addEventListener("auxclick", handler, true);
+          // Refresh stored metadata on every click so the S3 inline-view tab
+          // always finds a fresh client name regardless of which link was clicked.
+          document.addEventListener("click", () => this.storeContextMeta(), true);
           console.log("✓ Quick PDF download (inbox capture) enabled");
         },
       };
@@ -2215,11 +2237,169 @@
       );
     }
 
-    // Wait for DOM before initializing modules
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeModules);
+    // ============================================================================
+    // S3 INBOX SAVE BUTTON
+    // Runs only on meruscase-customer-uploads.s3.amazonaws.com/* pages.
+    // Reads the client name stored by QuickPDFDownload.storeContextMeta() when
+    // the user was on a MerusCase case page and clicked any link.
+    // ============================================================================
+
+    const S3InboxButton = {
+        META_KEY: 'merus_pending_meta',
+        META_TTL_MS: 120_000,   // 2 minutes — S3 pre-signed URLs expire in 3 min
+
+        _sanitize(str) {
+            return String(str)
+                .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        },
+
+        getStoredMeta() {
+            try {
+                const raw = GM_getValue(this.META_KEY, null);
+                if (!raw) return null;
+                const meta = JSON.parse(raw);
+                if (Date.now() - meta.ts > this.META_TTL_MS) return null;
+                return meta;
+            } catch (e) {
+                return null;
+            }
+        },
+
+        buildSentinelName(client) {
+            const pathname = window.location.pathname;
+
+            // Date from URL path segment (e.g. /acct/docid/2026-06-17/file.pdf)
+            const dateSeg = pathname.match(/\/(\d{4})-(\d{2})-(\d{2})\//);
+            const dateStr = dateSeg
+                ? `${dateSeg[1]}.${dateSeg[2]}.${dateSeg[3]}`
+                : 'Undated';
+
+            // Title from filename (strip extension, replace separators)
+            const filename = pathname.split('/').pop() || 'document';
+            const extMatch = filename.match(/\.([a-z0-9]{1,6})$/i);
+            const ext = extMatch ? extMatch[1].toLowerCase() : 'pdf';
+            const rawStem = filename.replace(/\.[^.]+$/, '');
+            const cleanTitle = rawStem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled';
+
+            const parts = [client, dateStr, cleanTitle].map(s => this._sanitize(s) || 'Unknown');
+            return `_MerusInbox/${parts.join(' ::: ')}.${ext}`;
+        },
+
+        saveToInbox(name) {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: window.location.href,
+                    responseType: 'blob',
+                    timeout: 120_000,
+                    onload: (res) => {
+                        if (res.status < 200 || res.status >= 300) {
+                            reject(new Error(`HTTP ${res.status}`));
+                            return;
+                        }
+                        const objUrl = URL.createObjectURL(res.response);
+                        GM_download({
+                            url: objUrl,
+                            name,
+                            saveAs: false,
+                            onload: () => { URL.revokeObjectURL(objUrl); resolve(name); },
+                            onerror: (e) => { URL.revokeObjectURL(objUrl); reject(new Error((e && e.error) || 'download error')); },
+                            ontimeout: () => { URL.revokeObjectURL(objUrl); reject(new Error('download timeout')); },
+                        });
+                    },
+                    onerror: () => reject(new Error('network error')),
+                    ontimeout: () => reject(new Error('fetch timeout')),
+                });
+            });
+        },
+
+        inject(client) {
+            const name = this.buildSentinelName(client);
+            const displayName = name.split('/').pop();
+
+            const btn = document.createElement('button');
+            btn.textContent = '⬇ Save to Inbox';
+            btn.title = displayName;
+            btn.style.cssText = [
+                'position:fixed', 'top:14px', 'right:14px', 'z-index:999999',
+                'background:#1f6feb', 'color:#fff',
+                'padding:10px 16px', 'border-radius:10px',
+                'font:600 13px/1.4 -apple-system,sans-serif',
+                'cursor:pointer', 'border:none',
+                'box-shadow:0 4px 16px rgba(0,0,0,.3)',
+            ].join(';');
+
+            const sub = document.createElement('div');
+            sub.textContent = displayName;
+            sub.style.cssText = 'font-size:10px;font-weight:400;opacity:.75;margin-top:2px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'position:fixed;top:14px;right:14px;z-index:999999;text-align:right;';
+            wrap.appendChild(btn);
+            wrap.appendChild(sub);
+            document.body.appendChild(wrap);
+
+            btn.addEventListener('click', () => {
+                btn.disabled = true;
+                btn.textContent = '⏳ Saving…';
+                this.saveToInbox(name)
+                    .then((saved) => {
+                        btn.textContent = '✓ Saved';
+                        btn.style.background = '#1f883d';
+                        sub.textContent = saved.split('/').pop();
+                        console.log('✓ Saved to _MerusInbox:', saved);
+                        try { GM_setValue(this.META_KEY, null); } catch (e) {}
+                        setTimeout(() => wrap.remove(), 3500);
+                    })
+                    .catch((err) => {
+                        btn.disabled = false;
+                        btn.textContent = '⚠ Error — retry?';
+                        btn.style.background = '#cf222e';
+                        console.error('[MerusUtils] S3 save failed:', err);
+                        setTimeout(() => {
+                            btn.textContent = '⬇ Save to Inbox';
+                            btn.style.background = '#1f6feb';
+                        }, 3000);
+                    });
+            });
+        },
+
+        init() {
+            const meta = this.getStoredMeta();
+            if (!meta) {
+                console.log('[MerusUtils] S3 page: no recent case metadata — open this PDF from a MerusCase tab to enable the Save to Inbox button');
+                return;
+            }
+            this.inject(meta.client);
+            console.log('[MerusUtils] S3 inbox button injected for client:', meta.client);
+        },
+    };
+
+    // ============================================================================
+    // BOOT — split on hostname
+    // ============================================================================
+
+    const _isS3Page = window.location.hostname.includes('s3.amazonaws.com');
+
+    if (!_isS3Page) {
+        // MerusCase: throttler runs at document-start before DOM exists
+        RequestThrottler.init();
+    }
+
+    function _runOnDOMReady(fn) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fn);
+        } else {
+            fn();
+        }
+    }
+
+    if (_isS3Page) {
+        _runOnDOMReady(() => S3InboxButton.init());
     } else {
-        initializeModules();
+        _runOnDOMReady(initializeModules);
     }
 
 })();
