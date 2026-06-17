@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.4.0
+// @version      3.9.5.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -282,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.9.4.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.9.5.0 initializing modules...",
       );
 
       // ============================================================================
@@ -1006,7 +1006,8 @@
           // Strip MerusCase's internal ".merged YYYYMMDDHHMMSS" suffix from the
           // server stem before using it for the title.
           const serverStem = serverFilename.replace(/\.[^.]+$/, '')
-            .replace(/\.merged\s*\d{14}$/i, '');
+            .replace(/\.merged\s*\d+$/i, '');
+          console.log('[MerusUtils] serverFilename:', serverFilename, '| serverStem:', serverStem);
 
           // --- date ---
           // Priority: 1) YYYY.MM.DD at start of DOM name, 2) YYYY.MM.DD at start
