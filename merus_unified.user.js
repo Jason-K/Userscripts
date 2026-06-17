@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.1.0
+// @version      3.9.2.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -282,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.9.1.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.9.2.0 initializing modules...",
       );
 
       // ============================================================================
@@ -976,9 +976,9 @@
           const rawStem = filename.replace(/\.[^.]+$/, '');
           const title   = rawStem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled';
 
-          const san = (s) => String(s).replace(/[<>:"/\\|?*\x00-\x1F]/g, '').replace(/\s+/g, ' ').trim();
+          const san = (s) => String(s).replace(/[<>"/\\|?*\x00-\x1F]/g, '').replace(/\s+/g, ' ').trim();
           const parts = [client, dateStr, title].map(s => san(s) || 'Unknown');
-          return `${parts.join(' ::: ')}.${ext}`;
+          return `${parts.join(' ___ ')}.${ext}`;
         },
 
         // Trigger a browser download of `blob` with the given filename.
@@ -2118,7 +2118,7 @@
 
         _sanitize(str) {
             return String(str)
-                .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+                .replace(/[<>"/\\|?*\x00-\x1F]/g, '')
                 .replace(/\s+/g, ' ')
                 .trim();
         },
@@ -2152,7 +2152,7 @@
             const cleanTitle = rawStem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled';
 
             const parts = [client, dateStr, cleanTitle].map(s => this._sanitize(s) || 'Unknown');
-            return `${parts.join(' ::: ')}.${ext}`;
+            return `${parts.join(' ___ ')}.${ext}`;
         },
 
         async saveToInbox(name) {
