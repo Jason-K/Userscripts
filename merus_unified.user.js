@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.3.0
+// @version      3.9.4.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -282,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.9.3.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.9.4.0 initializing modules...",
       );
 
       // ============================================================================
@@ -957,54 +957,76 @@
       // ============================================================================
 
       const QuickPDFDownload = {
-        // Build the sentinel filename from the client name and the XHR response.
-        // Uses Content-Disposition header as the primary filename source (works
-        // for both direct-serve /documents/download/... and S3-redirect
-        // /uploads/download/... cases). Falls back to finalUrl path for S3.
-        _buildSentinelName(client, resp) {
-          // --- original filename from response ---
+        // Walk up from the download link looking for a nearby element whose text
+        // looks like a dated MerusCase filename (YYYY.MM.DD prefix). MerusCase
+        // shows the original name in the UI but Content-Disposition often uses
+        // an internal name without the date.
+        _findDocumentNameFromDOM(link) {
+          const container = link.closest(
+            'tr, li, [class*="attach"], [class*="doc"], [class*="file"], [class*="activity"]'
+          );
+          if (!container) return '';
+          for (const el of container.querySelectorAll('[title], a, span, td, label')) {
+            if (el === link || el.contains(link)) continue;
+            const text = (el.getAttribute('title') || el.textContent || '').trim();
+            if (/^\d{4}[.\-]\d{2}[.\-]\d{2}[\s\-._]/.test(text)) return text;
+          }
+          return '';
+        },
+
+        // Build the sentinel filename from the client name, the XHR response,
+        // and an optional DOM-derived filename (carries the original date when
+        // the server's Content-Disposition omits it).
+        _buildSentinelName(client, resp, domName) {
+          // --- server filename from response headers ---
           const headers = resp.responseHeaders || '';
-          let filename = '';
+          let serverFilename = '';
 
-          // RFC 5987 encoded filename* takes precedence
           const starM = headers.match(/filename\*\s*=\s*(?:[^']*'')?([^;\r\n]+)/i);
-          if (starM) filename = decodeURIComponent(starM[1].trim());
+          if (starM) serverFilename = decodeURIComponent(starM[1].trim());
 
-          if (!filename) {
+          if (!serverFilename) {
             const plainM = headers.match(/filename\s*=\s*"?([^";\r\n]+)"?/i);
-            if (plainM) filename = plainM[1].trim();
+            if (plainM) serverFilename = plainM[1].trim();
           }
 
-          // fall back to path of final URL (S3 redirect case)
-          if (!filename) {
+          if (!serverFilename) {
             try {
               const p = new URL(resp.finalUrl || '').pathname;
-              filename = decodeURIComponent(p.split('/').pop() || '');
+              serverFilename = decodeURIComponent(p.split('/').pop() || '');
             } catch (_) {}
           }
 
-          filename = filename || 'document.pdf';
+          serverFilename = serverFilename || 'document.pdf';
 
-          // --- extension ---
-          const extMatch = filename.match(/\.([a-z0-9]{1,6})$/i);
-          const ext     = extMatch ? extMatch[1].toLowerCase() : 'pdf';
-          const rawStem = filename.replace(/\.[^.]+$/, '');
+          // --- extension (from server filename, most authoritative) ---
+          const extMatch = serverFilename.match(/\.([a-z0-9]{1,6})$/i);
+          const ext = extMatch ? extMatch[1].toLowerCase() : 'pdf';
 
-          // --- date: YYYY.MM.DD at start of stem wins; else /YYYY-MM-DD/ in URL path ---
+          // Strip MerusCase's internal ".merged YYYYMMDDHHMMSS" suffix from the
+          // server stem before using it for the title.
+          const serverStem = serverFilename.replace(/\.[^.]+$/, '')
+            .replace(/\.merged\s*\d{14}$/i, '');
+
+          // --- date ---
+          // Priority: 1) YYYY.MM.DD at start of DOM name, 2) YYYY.MM.DD at start
+          // of server stem, 3) /YYYY-MM-DD/ in final URL path, 4) Undated.
           let dateStr = 'Undated';
-          const stemDate = rawStem.match(/^(\d{4})\.(\d{2})\.(\d{2})\b/);
-          if (stemDate) {
-            dateStr = `${stemDate[1]}.${stemDate[2]}.${stemDate[3]}`;
-          } else {
+          const findDate = (s) => s && s.match(/^(\d{4})[.\-](\d{2})[.\-](\d{2})\b/);
+          const domDate = findDate(domName);
+          const srvDate = findDate(serverStem);
+          if (domDate)    dateStr = `${domDate[1]}.${domDate[2]}.${domDate[3]}`;
+          else if (srvDate) dateStr = `${srvDate[1]}.${srvDate[2]}.${srvDate[3]}`;
+          else {
             try {
               const pd = new URL(resp.finalUrl || '').pathname.match(/\/(\d{4})-(\d{2})-(\d{2})\//);
               if (pd) dateStr = `${pd[1]}.${pd[2]}.${pd[3]}`;
             } catch (_) {}
           }
 
-          // --- title: strip leading "YYYY.MM.DD - " prefix, then clean separators ---
-          const title = rawStem
-            .replace(/^\d{4}\.\d{2}\.\d{2}\s*[-–—]?\s*/, '')
+          // --- title: prefer server stem (cleaner), strip date prefix, clean separators ---
+          const title = serverStem
+            .replace(/^\d{4}[.\-]\d{2}[.\-]\d{2}\s*[-–—]?\s*/, '')
             .replace(/[_-]+/g, ' ')
             .replace(/\s+/g, ' ')
             .trim() || 'Untitled';
@@ -1052,20 +1074,19 @@
             GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
           } catch (_) {}
 
-          console.log('[MerusUtils] fetching document for client:', client);
+          // Capture the DOM-visible filename NOW (before the XHR), because
+          // Content-Disposition often uses an internal name without the date.
+          const domName = this._findDocumentNameFromDOM(link);
+          console.log('[MerusUtils] fetching document for client:', client,
+            domName ? `| dom name: ${domName}` : '| no dom name found');
 
-          // GM_xmlhttpRequest bypasses CORS and follows the meruscase.com →
-          // S3 redirect while sending meruscase.com session cookies. The
-          // finalUrl gives us the S3 path from which we extract date/title.
-          // Using a blob URL + <a download> instead of GM_download preserves
-          // the ::: delimiter characters on macOS APFS.
           GM_xmlhttpRequest({
             method: 'GET',
             url: href,
             responseType: 'blob',
             onload: (resp) => {
               try {
-                const name = this._buildSentinelName(client, resp);
+                const name = this._buildSentinelName(client, resp, domName);
                 this._saveBlob(resp.response, name);
                 console.log('[MerusUtils] saving to inbox as:', name);
               } catch (err) {
