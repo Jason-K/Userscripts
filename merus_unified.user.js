@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.6.0
+// @version      3.9.7.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -282,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.9.6.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.9.7.0 initializing modules...",
       );
 
       // ============================================================================
@@ -1055,7 +1055,9 @@
         },
 
         handleDownloadClick(event) {
-          const link = event.target.closest('a[aria-label="Download Document"]');
+          const link = event.target.closest(
+            'a[aria-label="Download Document"], a[aria-label="Download document in Acrobat (PDF) Format"]'
+          );
           if (!link) return;
           const href = link.href;
           if (!href) return;
