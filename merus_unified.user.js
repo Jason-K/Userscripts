@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.7.0
+// @version      3.9.8.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -282,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.9.7.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.9.8.0 initializing modules...",
       );
 
       // ============================================================================
@@ -977,7 +977,7 @@
         // Build the sentinel filename from the client name, the XHR response,
         // and an optional DOM-derived filename (carries the original date when
         // the server's Content-Disposition omits it).
-        _buildSentinelName(client, resp, domName) {
+        _buildSentinelName(client, resp, domName, companionFinalUrl) {
           // --- server filename from response headers ---
           const headers = resp.responseHeaders || '';
           let serverFilename = '';
@@ -1003,10 +1003,12 @@
           const extMatch = serverFilename.match(/\.([a-z0-9]{1,6})$/i);
           const ext = extMatch ? extMatch[1].toLowerCase() : 'pdf';
 
-          // Strip MerusCase's internal ".merged YYYYMMDDHHMMSS" suffix from the
-          // server stem before using it for the title.
+          // Strip .merged_YYYYMMDDHHMMSS suffix, then any embedded doc extension
+          // that MerusCase appends when converting DOCX → PDF (e.g. name.docx.pdf
+          // becomes name.docx after ext strip, then name after this step).
           const serverStem = serverFilename.replace(/\.[^.]+$/, '')
-            .replace(/\.merged[\s_]*\d+$/i, '');
+            .replace(/\.merged[\s_]*\d+$/i, '')
+            .replace(/\.(pdf|docx?|xlsx?|pptx?|txt|rtf|csv)$/i, '');
           console.log('[MerusUtils] serverFilename:', serverFilename, '| serverStem:', serverStem);
 
           // --- date ---
@@ -1019,10 +1021,15 @@
           if (domDate)    dateStr = `${domDate[1]}.${domDate[2]}.${domDate[3]}`;
           else if (srvDate) dateStr = `${srvDate[1]}.${srvDate[2]}.${srvDate[3]}`;
           else {
-            try {
-              const pd = new URL(resp.finalUrl || '').pathname.match(/\/(\d{4})-(\d{2})-(\d{2})\//);
-              if (pd) dateStr = `${pd[1]}.${pd[2]}.${pd[3]}`;
-            } catch (_) {}
+            // Check own finalUrl first, then the companion PDF HEAD finalUrl
+            // (used when a DOCX download lacks a date but its PDF sibling
+            // redirects through S3, which carries the date in its path).
+            for (const u of [resp.finalUrl, companionFinalUrl].filter(Boolean)) {
+              try {
+                const pd = new URL(u).pathname.match(/\/(\d{4})-(\d{2})-(\d{2})\//);
+                if (pd) { dateStr = `${pd[1]}.${pd[2]}.${pd[3]}`; break; }
+              } catch (_) {}
+            }
           }
 
           // --- title: prefer server stem (cleaner), strip date prefix, clean separators ---
@@ -1077,19 +1084,47 @@
             GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
           } catch (_) {}
 
-          // Capture the DOM-visible filename NOW (before the XHR), because
+          // Capture the DOM-visible filename NOW (before any XHR), because
           // Content-Disposition often uses an internal name without the date.
           const domName = this._findDocumentNameFromDOM(link);
+          const hasDomDate = domName && /^\d{4}[.\-]\d{2}[.\-]\d{2}\b/.test(domName);
+          const isDocxButton = link.getAttribute('aria-label') === 'Download Document';
+
           console.log('[MerusUtils] fetching document for client:', client,
             domName ? `| dom name: ${domName}` : '| no dom name found');
 
+          // For DOCX downloads with no date in the DOM name, probe the companion
+          // "Download as PDF" button via HEAD (no body) to get its S3 finalUrl,
+          // which carries the document upload date in the path.
+          if (isDocxButton && !hasDomDate) {
+            const container = link.closest(
+              'tr, li, [class*="attach"], [class*="doc"], [class*="file"], [class*="activity"]'
+            );
+            const pdfHref = container
+              ?.querySelector('a[aria-label="Download document in Acrobat (PDF) Format"]')
+              ?.href;
+            if (pdfHref) {
+              GM_xmlhttpRequest({
+                method: 'HEAD',
+                url: pdfHref,
+                onload:  (h) => this._fetchAndSave(client, href, domName, h.finalUrl || null),
+                onerror: ()  => this._fetchAndSave(client, href, domName, null),
+              });
+              return;
+            }
+          }
+
+          this._fetchAndSave(client, href, domName, null);
+        },
+
+        _fetchAndSave(client, href, domName, companionFinalUrl) {
           GM_xmlhttpRequest({
             method: 'GET',
             url: href,
             responseType: 'blob',
             onload: (resp) => {
               try {
-                const name = this._buildSentinelName(client, resp, domName);
+                const name = this._buildSentinelName(client, resp, domName, companionFinalUrl);
                 this._saveBlob(resp.response, name);
                 console.log('[MerusUtils] saving to inbox as:', name);
               } catch (err) {
