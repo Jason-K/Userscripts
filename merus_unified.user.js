@@ -1,12 +1,16 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.6.7.4
+// @version      3.7.0.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
 // @grant        GM_addStyle
+// @grant        GM_download
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @connect      meruscase.com
+// @connect      self
 // @run-at       document-start
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_unified.user.js
 // @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/merus_unified.user.js
@@ -950,6 +954,28 @@
       // ============================================================================
 
       const QuickPDFDownload = {
+        // ---- config ----
+        INBOX_SUBDIR: "_MerusInbox", // relative to the browser download dir (= ~/Downloads)
+        DELIM: " ::: ", // survives sanitizeFilename() because we join AFTER sanitizing
+        REQUEST_TIMEOUT_MS: 120000,
+
+        MIME_EXT: {
+          "application/pdf": "pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            "docx",
+          "application/msword": "doc",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "xlsx",
+          "application/vnd.ms-excel": "xls",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+            "pptx",
+          "application/vnd.ms-powerpoint": "ppt",
+          "application/rtf": "rtf",
+          "text/rtf": "rtf",
+          "text/plain": "txt",
+        },
+
+        // ---- existing helpers (unchanged) ----
         extractDateFromText(text) {
           const parsed = Utils.parseDate(text);
           return parsed ? Utils.formatDate(parsed, "YYYY.MM.DD") : "Undated";
@@ -961,63 +987,35 @@
         },
 
         stripDateFromTitle(text) {
-          // Remove file extensions first
           let cleaned = text.replace(
             /\.(pdf|doc|docx|txt|jpg|jpeg|png|xls|xlsx|ppt|pptx|rtf|odt)$/i,
             "",
           );
-
-          // Remove ISO format dates: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
           cleaned = cleaned.replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, "");
-
-          // Remove US format dates with 4-digit year: MM-DD-YYYY, MM/DD/YYYY, MM.DD.YYYY, MM_DD_YYYY
           cleaned = cleaned.replace(/\d{1,2}[-/._]\d{1,2}[-/._]\d{4}/g, "");
-
-          // Remove US format dates with 2-digit year: MM-DD-YY, MM/DD/YY, MM.DD.YY, MM_DD_YY
           cleaned = cleaned.replace(
             /\d{1,2}[-/._]\d{1,2}[-/._]\d{2}(?!\d)/g,
             "",
           );
-
-          // Remove compact format: MMDDYY (6 consecutive digits)
           cleaned = cleaned.replace(/(?:^|_|\.)\d{6}(?:$|_|\.)/g, "");
-
-          // Clean up extra underscores, dots, and spaces
-          cleaned = cleaned.replace(/[_.]([_.])+/g, "$1"); // Multiple separators to single
-          cleaned = cleaned.replace(/^[_.\s]+|[_.\s]+$/g, ""); // Trim separators
-
+          cleaned = cleaned.replace(/[_.]([_.])+/g, "$1");
+          cleaned = cleaned.replace(/^[_.\s]+|[_.\s]+$/g, "");
           return cleaned;
         },
 
         processTitle(text) {
-          // First strip out any date strings and file extensions
           let cleaned = this.stripDateFromTitle(text);
-
-          // Apply standard substitutions BEFORE title casing
           cleaned = Utils.applyStandardSubstitutions(cleaned);
-
-          // Apply title case with acronyms
           let result = Utils.titleCase(cleaned, Utils.ACRONYMS);
-
-          // Words that should remain lowercase (document types and common nouns)
-          result = result.replace(/\b([A-Za-z]+)\b/g, (match) => {
-            return Utils.LOWERCASE_WORDS.includes(match.toLowerCase())
+          result = result.replace(/\b([A-Za-z]+)\b/g, (match) =>
+            Utils.LOWERCASE_WORDS.includes(match.toLowerCase())
               ? match.toLowerCase()
-              : match;
-          });
-
-          // Remove periods that are directly attached to words (like "MD.")
+              : match,
+          );
           result = result.replace(/(\bMD)\.(?=\s|$)/g, "$1");
-
-          // Clean up any leftover periods followed by spaces
           result = result.replace(/\.\s+/g, " ");
-
-          // Remove any trailing dots, commas, and spaces
           result = result.replace(/[,.\s]+$/g, "");
-
-          // Clean up multiple spaces
           result = result.replace(/\s+/g, " ");
-
           return result.trim();
         },
 
@@ -1026,55 +1024,147 @@
           const title = this.extractTitle();
           const dateStr = this.extractDateFromText(title);
           const processedTitle = this.processTitle(title);
-
           return Utils.sanitizeFilename(
             `${caseName} - ${dateStr} - ${processedTitle}`,
           );
         },
 
+        // ---- new: extension resolution ----
+        filenameFromCD(headers) {
+          const line =
+            (headers || "")
+              .split(/\r?\n/)
+              .find((h) => /^content-disposition:/i.test(h)) || "";
+          let m = line.match(/filename\*\s*=\s*[^']*''([^;]+)/i);
+          if (m) {
+            try {
+              return decodeURIComponent(m[1].trim().replace(/"/g, ""));
+            } catch {
+              return m[1];
+            }
+          }
+          m = line.match(/filename\s*=\s*"?([^";]+)"?/i);
+          return m ? m[1].trim() : null;
+        },
+
+        extOf(name) {
+          const m = name && name.match(/\.([A-Za-z0-9]{1,6})$/);
+          return m ? m[1].toLowerCase() : null;
+        },
+
+        // ---- new: fetch with session cookies, resolve blob + extension ----
+        captureBlob(href) {
+          return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+              method: "GET",
+              url: href,
+              responseType: "blob",
+              timeout: this.REQUEST_TIMEOUT_MS,
+              onload: (res) => {
+                if (res.status < 200 || res.status >= 300) {
+                  reject(new Error(`HTTP ${res.status}`));
+                  return;
+                }
+                const blob = res.response;
+                const cdName = this.filenameFromCD(res.responseHeaders);
+                const mime = ((blob && blob.type) || "")
+                  .split(";")[0]
+                  .trim()
+                  .toLowerCase();
+                const ext = this.extOf(cdName) || this.MIME_EXT[mime] || "pdf";
+                resolve({ blob, ext });
+              },
+              onerror: () => reject(new Error("network error")),
+              ontimeout: () => reject(new Error("timeout")),
+            });
+          });
+        },
+
+        // ---- new: build inbox-relative sentinel path ----
+        buildInboxPath(ext) {
+          const caseName = Utils.getCaseName(); // "Last, First"
+          const title = this.extractTitle();
+          const dateStr = this.extractDateFromText(title); // YYYY.MM.DD | Undated
+          const cleanTitle = this.processTitle(title) || "Untitled";
+          // Sanitize EACH component before joining so the ":" delimiter is not
+          // stripped by sanitizeFilename (which removes ":").
+          const stem = [caseName, dateStr, cleanTitle]
+            .map((s) => Utils.sanitizeFilename(String(s)) || "Unknown")
+            .join(this.DELIM);
+          return `${this.INBOX_SUBDIR}/${stem}.${ext}`;
+        },
+
+        // ---- new: save blob into inbox ----
+        saveToInbox(blob, name) {
+          return new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(blob);
+            const finish = (fn, arg) => {
+              URL.revokeObjectURL(url);
+              fn(arg);
+            };
+            try {
+              GM_download({
+                url,
+                name,
+                saveAs: false,
+                onload: () => finish(resolve),
+                onerror: (e) =>
+                  finish(
+                    reject,
+                    new Error(
+                      `GM_download: ${(e && (e.error || e.details)) || "error"}`,
+                    ),
+                  ),
+                ontimeout: () =>
+                  finish(reject, new Error("GM_download timeout")),
+              });
+            } catch (e) {
+              finish(reject, e);
+            }
+          });
+        },
+
+        // ---- rewritten click handler ----
         handleDownloadClick(event) {
           const link = event.target.closest(
             'a[aria-label="Download Document"]',
           );
           if (!link) return;
-
-          // Only intercept left-click (button 0) and middle-click (button 1). Allow right-click through.
           if (event.button !== 0 && event.button !== 1) return;
 
-          event.preventDefault();
-          const filename = this.runFilenameLogic();
+          const rawHref = link.getAttribute("href");
+          if (!rawHref) return;
 
-          // Copy filename to clipboard
-          ClipboardUtils.copyText(filename)
-            .then(() => {
-              console.log("✓ PDF filename copied:", filename);
+          event.preventDefault();
+          const href = new URL(rawHref, window.location.origin).href;
+
+          this.captureBlob(href)
+            .then(({ blob, ext }) => {
+              const name = this.buildInboxPath(ext);
+              return this.saveToInbox(blob, name).then(() => {
+                console.log("✓ Filed to _MerusInbox:", name);
+              });
             })
             .catch((err) => {
-              console.warn("Could not copy filename:", err);
-            });
-
-          const href = link.getAttribute("href");
-          if (!href) return;
-
-          // For left-click, open in new tab
-          if (event.button === 0) {
-            window.open(href, "_blank");
-          }
-          // For middle-click, open in new tab
-          else if (event.button === 1) {
-            window.open(href, "_blank");
-          }
+              // Never block the user: fall back to native download + clipboard.
+              console.warn(
+                "Inbox capture failed; native download fallback:",
+                err,
+              );
+              const filename = this.runFilenameLogic();
+              ClipboardUtils.copyText(filename).catch(() => {});
+              window.open(href, "_blank");
+            };);
         },
 
         init() {
-          // Listen for both click and auxclick (middle/right click) events
           const handler = this.handleDownloadClick.bind(this);
           document.addEventListener("click", handler, true);
           document.addEventListener("auxclick", handler, true);
-
-          console.log("✓ Quick PDF download enabled");
+          console.log("✓ Quick PDF download (inbox capture) enabled");
         },
       };
+
 
       // ============================================================================
       // 5. SMART RENAMER (Documents)
