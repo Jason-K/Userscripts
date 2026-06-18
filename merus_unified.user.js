@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.10.0.0
+// @version      3.10.0.1
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -282,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.10.0.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.10.0.1 initializing modules...",
       );
 
       // ============================================================================
@@ -964,8 +964,16 @@
           if (!fileRow) return null;
           const sibling = fileRow.nextElementSibling;
           if (!sibling) return null;
-          const m = (sibling.querySelector('h5')?.textContent || '')
-            .match(/Activity Details:\s*Document,\s*(.+)/i);
+          const h5 = sibling.querySelector('h5');
+          if (!h5) return null;
+          // Use only the first text node — h5 contains "Activity Details: Document, TAG"
+          // followed by a <br> and a <small> with date/author. textContent concatenates
+          // all of them without a separator, so we read the first TEXT_NODE only.
+          const firstText = [...h5.childNodes]
+            .filter(n => n.nodeType === Node.TEXT_NODE)
+            .map(n => n.textContent.trim())
+            .find(t => t.length > 0) || '';
+          const m = firstText.match(/Activity Details:\s*Document,\s*(.+)/i);
           return m ? m[1].trim() : null;
         },
 
