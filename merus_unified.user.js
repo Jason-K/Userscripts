@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.9.8.0
+// @version      3.10.0.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -282,7 +282,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.9.8.0 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.10.0.0 initializing modules...",
       );
 
       // ============================================================================
@@ -957,6 +957,18 @@
       // ============================================================================
 
       const QuickPDFDownload = {
+        // Read the Merus document type tag (e.g. "MEDICAL", "CORRESPONDENCE")
+        // from the activity-details sibling of a document's list-group-item row.
+        _findMerusTag(element) {
+          const fileRow = element.closest('div.list-group-item');
+          if (!fileRow) return null;
+          const sibling = fileRow.nextElementSibling;
+          if (!sibling) return null;
+          const m = (sibling.querySelector('h5')?.textContent || '')
+            .match(/Activity Details:\s*Document,\s*(.+)/i);
+          return m ? m[1].trim() : null;
+        },
+
         // Walk up from the download link looking for a nearby element whose text
         // looks like a dated MerusCase filename (YYYY.MM.DD prefix). MerusCase
         // shows the original name in the UI but Content-Disposition often uses
@@ -975,9 +987,10 @@
         },
 
         // Build the sentinel filename from the client name, the XHR response,
-        // and an optional DOM-derived filename (carries the original date when
-        // the server's Content-Disposition omits it).
-        _buildSentinelName(client, resp, domName, companionFinalUrl) {
+        // an optional DOM-derived filename (carries the original date when the
+        // server's Content-Disposition omits it), and an optional Merus tag
+        // (e.g. "MEDICAL") encoded as "[TAG]" for the daemon to extract.
+        _buildSentinelName(client, resp, domName, companionFinalUrl, merusTag) {
           // --- server filename from response headers ---
           const headers = resp.responseHeaders || '';
           let serverFilename = '';
@@ -1040,7 +1053,8 @@
             .trim() || 'Untitled';
 
           const san = (s) => String(s).replace(/[<>"/\\|?*\x00-\x1F]/g, '').replace(/\s+/g, ' ').trim();
-          const parts = [client, dateStr, title].map(s => san(s) || 'Unknown');
+          const tagSuffix = merusTag ? ` [${san(merusTag)}]` : '';
+          const parts = [client, dateStr, title + tagSuffix].map(s => san(s) || 'Unknown');
           return `${parts.join(' ___ ')}.${ext}`;
         },
 
@@ -1084,14 +1098,16 @@
             GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
           } catch (_) {}
 
-          // Capture the DOM-visible filename NOW (before any XHR), because
-          // Content-Disposition often uses an internal name without the date.
+          // Capture the DOM-visible filename and Merus document-type tag NOW
+          // (before any XHR), because Content-Disposition often omits both.
           const domName = this._findDocumentNameFromDOM(link);
+          const merusTag = this._findMerusTag(link);
           const hasDomDate = domName && /^\d{4}[.\-]\d{2}[.\-]\d{2}\b/.test(domName);
           const isDocxButton = link.getAttribute('aria-label') === 'Download Document';
 
           console.log('[MerusUtils] fetching document for client:', client,
-            domName ? `| dom name: ${domName}` : '| no dom name found');
+            domName ? `| dom name: ${domName}` : '| no dom name found',
+            merusTag ? `| tag: ${merusTag}` : '');
 
           // For DOCX downloads with no date in the DOM name, probe the companion
           // "Download as PDF" button via HEAD (no body) to get its S3 finalUrl,
@@ -1107,24 +1123,24 @@
               GM_xmlhttpRequest({
                 method: 'HEAD',
                 url: pdfHref,
-                onload:  (h) => this._fetchAndSave(client, href, domName, h.finalUrl || null),
-                onerror: ()  => this._fetchAndSave(client, href, domName, null),
+                onload:  (h) => this._fetchAndSave(client, href, domName, h.finalUrl || null, merusTag),
+                onerror: ()  => this._fetchAndSave(client, href, domName, null, merusTag),
               });
               return;
             }
           }
 
-          this._fetchAndSave(client, href, domName, null);
+          this._fetchAndSave(client, href, domName, null, merusTag);
         },
 
-        _fetchAndSave(client, href, domName, companionFinalUrl) {
+        _fetchAndSave(client, href, domName, companionFinalUrl, merusTag = null) {
           GM_xmlhttpRequest({
             method: 'GET',
             url: href,
             responseType: 'blob',
             onload: (resp) => {
               try {
-                const name = this._buildSentinelName(client, resp, domName, companionFinalUrl);
+                const name = this._buildSentinelName(client, resp, domName, companionFinalUrl, merusTag);
                 this._saveBlob(resp.response, name);
                 console.log('[MerusUtils] saving to inbox as:', name);
               } catch (err) {
@@ -1148,7 +1164,54 @@
 
 
       // ============================================================================
-      // 5. SMART RENAMER (Documents)
+      // 5. MERGE TEMPLATE DOWNLOAD CAPTURE
+      // ============================================================================
+
+      const MergeTemplateCapture = {
+        _pendingTag: null,
+
+        init() {
+          // Capture the Merus tag at button-click time, before the async XHRs
+          // that precede the iframe navigation.
+          document.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn || !/merge/i.test(btn.textContent)) return;
+            this._pendingTag = QuickPDFDownload._findMerusTag(btn);
+          }, true);
+
+          // Intercept the iframe src assignment that Merus uses to trigger the
+          // merged-document download (Sec-Fetch-Dest: iframe).
+          const self = this;
+          const desc = Object.getOwnPropertyDescriptor(
+            unsafeWindow.HTMLIFrameElement.prototype, 'src'
+          );
+          if (!desc || !desc.set) return;
+
+          Object.defineProperty(unsafeWindow.HTMLIFrameElement.prototype, 'src', {
+            set(url) {
+              if (typeof url === 'string' && /\/documents\/download\//.test(url)) {
+                const client = Utils.getCaseName();
+                const tag = self._pendingTag;
+                self._pendingTag = null;
+                if (client && client !== 'Unknown Case') {
+                  console.log('[MerusUtils] merge template download intercepted for client:', client,
+                    tag ? `| tag: ${tag}` : '');
+                  QuickPDFDownload._fetchAndSave(client, url, '', null, tag);
+                  return;
+                }
+              }
+              desc.set.call(this, url);
+            },
+            get: desc.get,
+            configurable: true,
+          });
+
+          console.log('✓ Merge template download capture enabled');
+        },
+      };
+
+      // ============================================================================
+      // 6. SMART RENAMER (Documents)
       // ============================================================================
 
       const SmartRenamer = {
@@ -2184,6 +2247,7 @@
       DefaultAssignee.init();
       SmartTab.init();
       QuickPDFDownload.init();
+      MergeTemplateCapture.init();
       SmartRenamer.init();
       EmailRenamer.init();
       AntinoteIntegration.init();
