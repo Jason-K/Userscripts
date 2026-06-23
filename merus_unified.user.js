@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.10.0.2
+// @version      3.10.0.3
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1188,13 +1188,9 @@
         _recent: new Map(),
         _DEDUP_MS: 5000,
 
-        // Try to capture a /documents/download/ URL under a sentinel name.
-        // Returns true if captured (caller should suppress the navigation),
-        // false if there's no client context (caller lets it through unchanged).
-        _capture(url, tag) {
-          const client = Utils.getCaseName();
-          if (!client || client === "Unknown Case") return false;
-
+        // Returns true if `url` was already claimed within the dedup window
+        // (caller should no-op); false if newly claimed (caller should proceed).
+        _claimOnce(url) {
           const now = Date.now();
           const last = this._recent.get(url);
           if (last && now - last < this._DEDUP_MS) return true; // already on it
@@ -1204,7 +1200,18 @@
               if (now - t > this._DEDUP_MS) this._recent.delete(k);
             }
           }
+          return false;
+        },
 
+        // Try to capture a /documents/download/ URL under a sentinel name.
+        // Used by the anchor / iframe.src / window.open interceptors. Returns
+        // true if captured or already being handled (caller suppresses the
+        // navigation), false if there's no client context (caller lets it
+        // through unchanged).
+        _capture(url, tag) {
+          const client = Utils.getCaseName();
+          if (!client || client === "Unknown Case") return false;
+          if (this._claimOnce(url)) return true; // another vector is handling it
           console.log(
             "[MerusUtils] merge/download intercepted for client:",
             client,
@@ -1213,6 +1220,70 @@
             tag ? `| tag: ${tag}` : "",
           );
           QuickPDFDownload._fetchAndSave(client, url, "", null, tag);
+          return true;
+        },
+
+        // Capture a /documents/download/ URL that WE constructed from the
+        // mergeDocx JSON. We can't observe the page's own window.location
+        // navigation (Location members are unforgeable), so we fetch the
+        // download directly. Guards on Content-Type so a wrong URL guess can
+        // never save a garbage file; dedups with the interceptors above so the
+        // page's own window.open/iframe trigger is suppressed, not duplicated.
+        _captureMergeResult(url, tag) {
+          const client = Utils.getCaseName();
+          if (!client || client === "Unknown Case") return false;
+          if (this._claimOnce(url)) return true;
+          console.log(
+            "[MerusUtils] mergeDocx result download:",
+            url,
+            tag ? `| tag: ${tag}` : "",
+          );
+          GM_xmlhttpRequest({
+            method: "GET",
+            url,
+            responseType: "blob",
+            onload: (resp) => {
+              const headers = resp.responseHeaders || "";
+              const ct =
+                (headers.match(/content-type:\s*([^\r\n]+)/i) || [])[1] || "";
+              const disp =
+                (headers.match(/content-disposition:\s*([^\r\n]+)/i) || [])[1] ||
+                "";
+              const looksLikeDoc =
+                resp.status >= 200 &&
+                resp.status < 300 &&
+                (/attachment/i.test(disp) ||
+                  /application\/(pdf|octet-stream|vnd\.|msword)|text\/plain/i.test(
+                    ct,
+                  ) ||
+                  /\.(pdf|docx?|xlsx?|pptx?|rtf|txt|csv)/i.test(
+                    resp.finalUrl || "",
+                  ));
+              if (!looksLikeDoc) {
+                console.warn(
+                  "[MerusUtils] merge download URL did not return a document — skipping save",
+                  resp.status,
+                  ct,
+                );
+                return;
+              }
+              try {
+                const name = QuickPDFDownload._buildSentinelName(
+                  client,
+                  resp,
+                  "",
+                  null,
+                  tag,
+                );
+                QuickPDFDownload._saveBlob(resp.response, name);
+                console.log("[MerusUtils] merge result saved as:", name);
+              } catch (err) {
+                console.error("[MerusUtils] merge result save failed:", err);
+              }
+            },
+            onerror: () =>
+              console.warn("[MerusUtils] merge download fetch failed:", url),
+          });
           return true;
         },
 
@@ -1295,8 +1366,44 @@
             }
           }
 
+          // 4) Hook the document-merge ("mergeDocx") AJAX response. Clicking
+          // <button class="...save-button">Merge</button> POSTs to
+          // /caseFiles/mergeDocx/{ids} and receives {success, upload_id,
+          // activity_id}; the page then streams the merged file from
+          // /documents/download/{upload_id}/{activity_id}. We can't intercept
+          // the page's own window.location navigation (Location members are
+          // unforgeable), so we fetch that download URL directly ourselves.
+          const mOrigOpen = XMLHttpRequest.prototype.open;
+          const mOrigSend = XMLHttpRequest.prototype.send;
+          XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+            this.__merusMerge =
+              typeof url === "string" && /\/caseFiles\/merge/i.test(url);
+            return mOrigOpen.call(this, method, url, ...rest);
+          };
+          XMLHttpRequest.prototype.send = function (...args) {
+            if (this.__merusMerge) {
+              this.addEventListener("load", function () {
+                try {
+                  const json = JSON.parse(this.responseText || "{}");
+                  if (
+                    json.success &&
+                    json.upload_id != null &&
+                    json.activity_id != null
+                  ) {
+                    const dlUrl = `/documents/download/${json.upload_id}/${json.activity_id}`;
+                    self._captureMergeResult(dlUrl, self._pendingTag);
+                    self._pendingTag = null;
+                  }
+                } catch (_e) {
+                  // response wasn't the expected merge JSON
+                }
+              });
+            }
+            return mOrigSend.apply(this, args);
+          };
+
           console.log(
-            "✓ Merge template download capture enabled (iframe.src + window.open)",
+            "✓ Merge template download capture enabled (iframe.src + window.open + mergeDocx)",
           );
         },
       };
