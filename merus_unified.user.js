@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.10.0.1
+// @version      3.10.0.2
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1084,8 +1084,14 @@
         },
 
         handleDownloadClick(event) {
+          // Match the original two aria-labelled download buttons PLUS any
+          // anchor whose href hits the /documents/download/ endpoint — e.g. the
+          // "Download Again" button on a document's activity panel, which has no
+          // aria-label and opens via target="_blank". All of these stream a file
+          // from the same MerusCase endpoint; opening one raw lands an un-renamed
+          // file the daemon ignores, so we fetch + name it ourselves.
           const link = event.target.closest(
-            'a[aria-label="Download Document"], a[aria-label="Download document in Acrobat (PDF) Format"]'
+            'a[aria-label="Download Document"], a[aria-label="Download document in Acrobat (PDF) Format"], a[href*="/documents/download/"]'
           );
           if (!link) return;
           const href = link.href;
@@ -1177,44 +1183,121 @@
 
       const MergeTemplateCapture = {
         _pendingTag: null,
+        // Dedup across capture vectors — iframe.src and window.open can both
+        // fire for the same URL within milliseconds. Remember each URL briefly.
+        _recent: new Map(),
+        _DEDUP_MS: 5000,
+
+        // Try to capture a /documents/download/ URL under a sentinel name.
+        // Returns true if captured (caller should suppress the navigation),
+        // false if there's no client context (caller lets it through unchanged).
+        _capture(url, tag) {
+          const client = Utils.getCaseName();
+          if (!client || client === "Unknown Case") return false;
+
+          const now = Date.now();
+          const last = this._recent.get(url);
+          if (last && now - last < this._DEDUP_MS) return true; // already on it
+          this._recent.set(url, now);
+          if (this._recent.size > 64) {
+            for (const [k, t] of this._recent) {
+              if (now - t > this._DEDUP_MS) this._recent.delete(k);
+            }
+          }
+
+          console.log(
+            "[MerusUtils] merge/download intercepted for client:",
+            client,
+            "| url:",
+            url,
+            tag ? `| tag: ${tag}` : "",
+          );
+          QuickPDFDownload._fetchAndSave(client, url, "", null, tag);
+          return true;
+        },
 
         init() {
-          // Capture the Merus tag at button-click time, before the async XHRs
-          // that precede the iframe navigation.
-          document.addEventListener('click', (e) => {
-            const btn = e.target.closest('button');
-            if (!btn || !/merge/i.test(btn.textContent)) return;
-            this._pendingTag = QuickPDFDownload._findMerusTag(btn);
-          }, true);
-
-          // Intercept the iframe src assignment that Merus uses to trigger the
-          // merged-document download (Sec-Fetch-Dest: iframe).
           const self = this;
-          const desc = Object.getOwnPropertyDescriptor(
-            unsafeWindow.HTMLIFrameElement.prototype, 'src'
-          );
-          if (!desc || !desc.set) return;
 
-          Object.defineProperty(unsafeWindow.HTMLIFrameElement.prototype, 'src', {
-            set(url) {
-              if (typeof url === 'string' && /\/documents\/download\//.test(url)) {
-                const client = Utils.getCaseName();
-                const tag = self._pendingTag;
-                self._pendingTag = null;
-                if (client && client !== 'Unknown Case') {
-                  console.log('[MerusUtils] merge template download intercepted for client:', client,
-                    tag ? `| tag: ${tag}` : '');
-                  QuickPDFDownload._fetchAndSave(client, url, '', null, tag);
-                  return;
-                }
-              }
-              desc.set.call(this, url);
+          // 1) Capture the Merus tag at button-click time, before the async XHRs
+          // that precede the download. Matches any button whose label says
+          // "Merge" — both the template merge and the document-merge
+          // "save-button" (<button class="... save-button">Merge</button>).
+          document.addEventListener(
+            "click",
+            (e) => {
+              const btn = e.target.closest("button");
+              if (!btn || !/merge/i.test(btn.textContent)) return;
+              this._pendingTag = QuickPDFDownload._findMerusTag(btn);
             },
-            get: desc.get,
-            configurable: true,
-          });
+            true,
+          );
 
-          console.log('✓ Merge template download capture enabled');
+          // 2) Intercept iframe.src assignment (template-merge path: Merus sets
+          // a hidden iframe's src to /documents/download/... to stream the file).
+          const desc = Object.getOwnPropertyDescriptor(
+            unsafeWindow.HTMLIFrameElement.prototype,
+            "src",
+          );
+          if (desc && desc.set) {
+            Object.defineProperty(
+              unsafeWindow.HTMLIFrameElement.prototype,
+              "src",
+              {
+                set(url) {
+                  if (
+                    typeof url === "string" &&
+                    /\/documents\/download\//.test(url)
+                  ) {
+                    if (self._capture(url, self._pendingTag)) {
+                      self._pendingTag = null;
+                      return; // suppress the iframe navigation
+                    }
+                  }
+                  desc.set.call(this, url);
+                },
+                get: desc.get,
+                configurable: true,
+              },
+            );
+          }
+
+          // 3) Intercept window.open to /documents/download/ (document-merge and
+          // any flow that streams the file into a new tab). Suppress the tab and
+          // fetch the blob ourselves so it lands under a sentinel name.
+          const origOpen = unsafeWindow.open;
+          if (typeof origOpen === "function") {
+            const openDesc = Object.getOwnPropertyDescriptor(
+              unsafeWindow,
+              "open",
+            );
+            const canAssignOpen =
+              !openDesc ||
+              openDesc.writable ||
+              typeof openDesc.set === "function";
+            if (canAssignOpen) {
+              unsafeWindow.open = function (url, ...rest) {
+                if (
+                  typeof url === "string" &&
+                  /\/documents\/download\//.test(url)
+                ) {
+                  if (self._capture(url, self._pendingTag)) {
+                    self._pendingTag = null;
+                    return null; // suppress the new tab
+                  }
+                }
+                return origOpen.call(this, url, ...rest);
+              };
+            } else {
+              console.warn(
+                "⚠️ window.open is read-only; new-tab merge capture disabled",
+              );
+            }
+          }
+
+          console.log(
+            "✓ Merge template download capture enabled (iframe.src + window.open)",
+          );
         },
       };
 
