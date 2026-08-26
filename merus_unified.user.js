@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.10.0.3
+// @version      3.10.0.4
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -28,16 +28,17 @@
     // ============================================================================
 
     const RequestThrottler = {
+        _initialized: false,
         requestLog: new Map(),
-        WINDOW_MS: 5000,
-        MAX_REQUESTS: 3,
-        BLOCK_DURATION_MS: 10000,
+        WINDOW_MS: 4000,
+        MAX_REQUESTS: 12,
+        BLOCK_DURATION_MS: 2500,
         blockedUntil: new Map(),
         stats: { blocked: 0, allowed: 0, focusDebounced: 0 },
 
         // Focus event debouncing
         lastFocusTime: 0,
-        FOCUS_DEBOUNCE_MS: 2000,
+        FOCUS_DEBOUNCE_MS: 1500,
 
         // URL patterns to throttle
         THROTTLE_PATTERNS: [
@@ -66,21 +67,31 @@
                 return true;
             }
 
-            // Get or create request log entry
-            let log = this.requestLog.get(urlKey);
-            if (!log || now - log.firstRequest > this.WINDOW_MS) {
-                log = { count: 0, firstRequest: now };
+            // Periodically clean up old entries if map grows large
+            if (this.requestLog.size > 100) {
+                for (const [k, v] of this.requestLog.entries()) {
+                    if (!v.timestamps || v.timestamps.length === 0 || now - v.timestamps[v.timestamps.length - 1] > this.WINDOW_MS) {
+                        this.requestLog.delete(k);
+                    }
+                }
             }
 
-            log.count++;
-            log.lastRequest = now;
+            // Get or create request log entry with a sliding window
+            let log = this.requestLog.get(urlKey);
+            if (!log) {
+                log = { timestamps: [] };
+            }
+
+            // Retain only timestamps within the rolling window
+            log.timestamps = (log.timestamps || []).filter(t => now - t < this.WINDOW_MS);
+            log.timestamps.push(now);
             this.requestLog.set(urlKey, log);
 
             // Check if over limit
-            if (log.count > this.MAX_REQUESTS) {
+            if (log.timestamps.length > this.MAX_REQUESTS) {
                 this.blockedUntil.set(urlKey, now + this.BLOCK_DURATION_MS);
                 this.stats.blocked++;
-                console.warn(`🚫 Rate limit hit: ${urlKey} (${log.count} requests in ${this.WINDOW_MS}ms) - blocking for ${this.BLOCK_DURATION_MS/1000}s`);
+                console.warn(`🚫 Rate limit hit: ${urlKey} (${log.timestamps.length} requests in ${this.WINDOW_MS}ms) - blocking for ${this.BLOCK_DURATION_MS/1000}s`);
                 return true;
             }
 
@@ -89,6 +100,9 @@
         },
 
         init() {
+            if (this._initialized) return;
+            this._initialized = true;
+
             const self = this;
 
             // ─────────────────────────────────────────────────────────────────
@@ -282,7 +296,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.10.0.1 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.10.0.4 initializing modules...",
       );
 
       // ============================================================================
@@ -319,8 +333,8 @@
         parseDate(text) {
           if (!text) return null;
 
-          // ISO format: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
-          const isoMatch = text.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+          // ISO format: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD or YYYY_MM_DD
+          const isoMatch = text.match(/(\d{4})[-/._](\d{1,2})[-/._](\d{1,2})/);
           if (isoMatch) {
             const [, year, month, day] = isoMatch;
             return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
@@ -978,9 +992,7 @@
         },
 
         // Walk up from the download link looking for a nearby element whose text
-        // looks like a dated MerusCase filename (YYYY.MM.DD prefix). MerusCase
-        // shows the original name in the UI but Content-Disposition often uses
-        // an internal name without the date.
+        // looks like a dated MerusCase filename (YYYY.MM.DD prefix or standard date).
         _findDocumentNameFromDOM(link) {
           const container = link.closest(
             'tr, li, [class*="attach"], [class*="doc"], [class*="file"], [class*="activity"]'
@@ -989,9 +1001,47 @@
           for (const el of container.querySelectorAll('[title], a, span, td, label')) {
             if (el === link || el.contains(link)) continue;
             const text = (el.getAttribute('title') || el.textContent || '').trim();
-            if (/^\d{4}[.\-]\d{2}[.\-]\d{2}[\s\-._]/.test(text)) return text;
+            if (/^(\d{4}[.\-_/]\d{1,2}[.\-_/]\d{1,2}|\d{1,2}[.\-_/]\d{1,2}[.\-_/]\d{2,4})/.test(text)) return text;
           }
           return '';
+        },
+
+        // Extract a normalized YYYY.MM.DD date from text/stem/filename.
+        // Handles ISO (2026.08.26, 2026-08-26, 2026_08_26), US (08-26-2026, 08.26.2026),
+        // and embedded dates without boundary bugs on trailing underscores.
+        _extractDateFromText(s) {
+          if (!s || typeof s !== 'string') return null;
+          s = s.trim();
+          // 1) ISO date at start: YYYY.MM.DD, YYYY-MM-DD, YYYY_MM_DD, YYYY/MM/DD
+          const isoStart = s.match(/^(\d{4})[.\-_/](\d{1,2})[.\-_/](\d{1,2})/);
+          if (isoStart) {
+            const [, y, m, d] = isoStart;
+            return `${y}.${String(m).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
+          }
+          // 2) US date at start: MM.DD.YYYY, MM-DD-YYYY, MM_DD_YYYY, MM/DD/YYYY
+          const usStart = s.match(/^(\d{1,2})[.\-_/](\d{1,2})[.\-_/](\d{4})/);
+          if (usStart) {
+            const [, m, d, y] = usStart;
+            return `${y}.${String(m).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
+          }
+          // 3) ISO date anywhere in text (bounded by non-digits or string boundary)
+          const isoAny = s.match(/(?:^|[^\d])(\d{4})[.\-_/](\d{1,2})[.\-_/](\d{1,2})(?:[^\d]|$)/);
+          if (isoAny) {
+            const [, y, m, d] = isoAny;
+            return `${y}.${String(m).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
+          }
+          // 4) US date anywhere in text
+          const usAny = s.match(/(?:^|[^\d])(\d{1,2})[.\-_/](\d{1,2})[.\-_/](\d{4})(?:[^\d]|$)/);
+          if (usAny) {
+            const [, m, d, y] = usAny;
+            return `${y}.${String(m).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
+          }
+          // 5) Fallback to Utils.parseDate
+          const parsed = Utils.parseDate(s);
+          if (parsed && !isNaN(parsed.getTime())) {
+            return Utils.formatDate(parsed, 'YYYY.MM.DD');
+          }
+          return null;
         },
 
         // Build the sentinel filename from the client name, the XHR response,
@@ -1033,15 +1083,9 @@
           console.log('[MerusUtils] serverFilename:', serverFilename, '| serverStem:', serverStem);
 
           // --- date ---
-          // Priority: 1) YYYY.MM.DD at start of DOM name, 2) YYYY.MM.DD at start
-          // of server stem, 3) /YYYY-MM-DD/ in final URL path, 4) Undated.
-          let dateStr = 'Undated';
-          const findDate = (s) => s && s.match(/^(\d{4})[.\-](\d{2})[.\-](\d{2})\b/);
-          const domDate = findDate(domName);
-          const srvDate = findDate(serverStem);
-          if (domDate)    dateStr = `${domDate[1]}.${domDate[2]}.${domDate[3]}`;
-          else if (srvDate) dateStr = `${srvDate[1]}.${srvDate[2]}.${srvDate[3]}`;
-          else {
+          // Priority: 1) DOM name date, 2) Server stem date, 3) /YYYY-MM-DD/ in final URL path, 4) Undated.
+          let dateStr = this._extractDateFromText(domName) || this._extractDateFromText(serverStem);
+          if (!dateStr) {
             // Check own finalUrl first, then the companion PDF HEAD finalUrl
             // (used when a DOCX download lacks a date but its PDF sibling
             // redirects through S3, which carries the date in its path).
@@ -1052,10 +1096,11 @@
               } catch (_) {}
             }
           }
+          dateStr = dateStr || 'Undated';
 
           // --- title: prefer server stem (cleaner), strip date prefix, clean separators ---
           const title = serverStem
-            .replace(/^\d{4}[.\-]\d{2}[.\-]\d{2}\s*[-–—]?\s*/, '')
+            .replace(/^(\d{4}[.\-_/]\d{1,2}[.\-_/]\d{1,2}|\d{1,2}[.\-_/]\d{1,2}[.\-_/]\d{2,4})[\s_\-–—.]*/, '')
             .replace(/[_-]+/g, ' ')
             .replace(/\s+/g, ' ')
             .trim() || 'Untitled';
@@ -1116,7 +1161,7 @@
           // (before any XHR), because Content-Disposition often omits both.
           const domName = this._findDocumentNameFromDOM(link);
           const merusTag = this._findMerusTag(link);
-          const hasDomDate = domName && /^\d{4}[.\-]\d{2}[.\-]\d{2}\b/.test(domName);
+          const hasDomDate = Boolean(this._extractDateFromText(domName));
           const isDocxButton = link.getAttribute('aria-label') === 'Download Document';
 
           console.log('[MerusUtils] fetching document for client:', client,
@@ -1426,7 +1471,9 @@
           stem = Utils.applyStandardSubstitutions(stem);
 
           // Extract and convert date
-          const dateMatch = stem.match(/(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})/);
+          const dateMatch = stem.match(
+            /(\d{4}[-/._]\d{1,2}[-/._]\d{1,2}|\d{1,2}[-/._]\d{1,2}[-/._]\d{2,4})/,
+          );
           let date = "";
           if (dateMatch) {
             const parsedDate = Utils.parseDate(dateMatch[1]);
@@ -2493,17 +2540,30 @@
 
             // Date from URL path segment (e.g. /acct/docid/2026-06-17/file.pdf)
             const dateSeg = pathname.match(/\/(\d{4})-(\d{2})-(\d{2})\//);
-            const dateStr = dateSeg
+            let dateStr = dateSeg
                 ? `${dateSeg[1]}.${dateSeg[2]}.${dateSeg[3]}`
-                : 'Undated';
+                : '';
 
             // Title from filename (strip extension, replace separators)
             const filename = pathname.split('/').pop() || 'document';
             const extMatch = filename.match(/\.([a-z0-9]{1,6})$/i);
             const ext = extMatch ? extMatch[1].toLowerCase() : 'pdf';
             const rawStem = filename.replace(/\.[^.]+$/, '');
+
+            if (!dateStr) {
+                const isoM = rawStem.match(/^(\d{4})[.\-_/](\d{1,2})[.\-_/](\d{1,2})/);
+                const usM = rawStem.match(/^(\d{1,2})[.\-_/](\d{1,2})[.\-_/](\d{4})/);
+                if (isoM) {
+                    dateStr = `${isoM[1]}.${String(isoM[2]).padStart(2, '0')}.${String(isoM[3]).padStart(2, '0')}`;
+                } else if (usM) {
+                    dateStr = `${usM[3]}.${String(usM[1]).padStart(2, '0')}.${String(usM[2]).padStart(2, '0')}`;
+                } else {
+                    dateStr = 'Undated';
+                }
+            }
+
             const cleanTitle = rawStem
-                .replace(/^\d{4}[._-]\d{2}[._-]\d{2}\s*[-–—]?\s*/, '')
+                .replace(/^(\d{4}[._\-/]\d{1,2}[._\-/]\d{1,2}|\d{1,2}[._\-/]\d{1,2}[._\-/]\d{2,4})[\s_\-–—.]*/, '')
                 .replace(/[_-]+/g, ' ')
                 .replace(/\s+/g, ' ')
                 .trim() || 'Untitled';
