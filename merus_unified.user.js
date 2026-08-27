@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.10.0.4
+// @version      3.10.0.5
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -296,7 +296,7 @@
       }
 
       console.log(
-        "🚀 MerusCase Unified Utilities v3.10.0.4 initializing modules...",
+        "🚀 MerusCase Unified Utilities v3.10.0.5 initializing modules...",
       );
 
       // ============================================================================
@@ -1228,18 +1228,36 @@
 
       const MergeTemplateCapture = {
         _pendingTag: null,
-        // Dedup across capture vectors — iframe.src and window.open can both
-        // fire for the same URL within milliseconds. Remember each URL briefly.
+        // Dedup across capture vectors — iframe.src, setAttribute, window.open,
+        // anchor clicks, and mergeDocx XHR can all trigger for the same download.
+        // Remember normalized URL path briefly.
         _recent: new Map(),
         _DEDUP_MS: 5000,
 
+        // Normalize URL to pathname (e.g. /documents/download/123/456) so relative
+        // and absolute URLs match identically in the deduplication cache.
+        _normalizeUrl(url) {
+          if (!url || typeof url !== "string") return "";
+          try {
+            const u = new URL(url, window.location.origin);
+            return u.pathname.replace(/\/+$/, "");
+          } catch (_) {
+            return url
+              .replace(/^https?:\/\/[^\/]+/, "")
+              .replace(/\?.*$/, "")
+              .replace(/\/+$/, "");
+          }
+        },
+
         // Returns true if `url` was already claimed within the dedup window
-        // (caller should no-op); false if newly claimed (caller should proceed).
+        // (caller should no-op/suppress); false if newly claimed (caller should proceed).
         _claimOnce(url) {
+          const key = this._normalizeUrl(url);
+          if (!key) return false;
           const now = Date.now();
-          const last = this._recent.get(url);
-          if (last && now - last < this._DEDUP_MS) return true; // already on it
-          this._recent.set(url, now);
+          const last = this._recent.get(key);
+          if (last && now - last < this._DEDUP_MS) return true; // already being handled
+          this._recent.set(key, now);
           if (this._recent.size > 64) {
             for (const [k, t] of this._recent) {
               if (now - t > this._DEDUP_MS) this._recent.delete(k);
@@ -1254,6 +1272,9 @@
         // navigation), false if there's no client context (caller lets it
         // through unchanged).
         _capture(url, tag) {
+          if (typeof url !== "string" || !/\/documents\/download\//.test(url)) {
+            return false;
+          }
           const client = Utils.getCaseName();
           if (!client || client === "Unknown Case") return false;
           if (this._claimOnce(url)) return true; // another vector is handling it
@@ -1334,6 +1355,14 @@
 
         init() {
           const self = this;
+          const winList = [window];
+          if (
+            typeof unsafeWindow !== "undefined" &&
+            unsafeWindow &&
+            unsafeWindow !== window
+          ) {
+            winList.push(unsafeWindow);
+          }
 
           // 1) Capture the Merus tag at button-click time, before the async XHRs
           // that precede the download. Matches any button whose label says
@@ -1349,106 +1378,244 @@
             true,
           );
 
-          // 2) Intercept iframe.src assignment (template-merge path: Merus sets
-          // a hidden iframe's src to /documents/download/... to stream the file).
-          const desc = Object.getOwnPropertyDescriptor(
-            unsafeWindow.HTMLIFrameElement.prototype,
-            "src",
-          );
-          if (desc && desc.set) {
-            Object.defineProperty(
-              unsafeWindow.HTMLIFrameElement.prototype,
-              "src",
-              {
-                set(url) {
+          // Helper to safely get property descriptors from prototype chain
+          function getProtoDescriptor(obj, prop) {
+            let curr = obj;
+            while (curr) {
+              const d = Object.getOwnPropertyDescriptor(curr, prop);
+              if (d) return d;
+              curr = Object.getPrototypeOf(curr);
+            }
+            return null;
+          }
+
+          for (const w of winList) {
+            // 2) Intercept iframe.src assignment (template-merge path: Merus sets
+            // a hidden iframe's src to /documents/download/... to stream the file).
+            if (w.HTMLIFrameElement && w.HTMLIFrameElement.prototype) {
+              const desc = getProtoDescriptor(
+                w.HTMLIFrameElement.prototype,
+                "src",
+              );
+              if (desc && (desc.set || desc.writable)) {
+                try {
+                  Object.defineProperty(w.HTMLIFrameElement.prototype, "src", {
+                    set(url) {
+                      if (
+                        typeof url === "string" &&
+                        /\/documents\/download\//.test(url)
+                      ) {
+                        if (self._capture(url, self._pendingTag)) {
+                          self._pendingTag = null;
+                          return; // suppress the iframe navigation
+                        }
+                      }
+                      if (desc.set) {
+                        desc.set.call(this, url);
+                      } else if (desc.writable) {
+                        this._customSrc = url;
+                      }
+                    },
+                    get() {
+                      return desc.get ? desc.get.call(this) : this._customSrc;
+                    },
+                    configurable: true,
+                  });
+                } catch (_) {}
+              }
+            }
+
+            // 3) Intercept Element.prototype.setAttribute ('src' on iframe)
+            if (
+              w.Element &&
+              w.Element.prototype &&
+              w.Element.prototype.setAttribute
+            ) {
+              const origSetAttr = w.Element.prototype.setAttribute;
+              w.Element.prototype.setAttribute = function (name, val) {
+                if (
+                  typeof name === "string" &&
+                  name.toLowerCase() === "src" &&
+                  typeof val === "string" &&
+                  /\/documents\/download\//.test(val) &&
+                  (this.tagName === "IFRAME" ||
+                    (w.HTMLIFrameElement &&
+                      this instanceof w.HTMLIFrameElement))
+                ) {
+                  if (self._capture(val, self._pendingTag)) {
+                    self._pendingTag = null;
+                    return; // suppress attribute assignment
+                  }
+                }
+                return origSetAttr.apply(this, arguments);
+              };
+            }
+
+            // 4) Intercept programmatic anchor clicks (e.g. document.createElement('a').click())
+            const hookAnchorClick = (proto) => {
+              if (!proto || typeof proto.click !== "function") return;
+              const origClick = proto.click;
+              proto.click = function () {
+                const href =
+                  this.href ||
+                  (this.getAttribute && this.getAttribute("href"));
+                if (
+                  typeof href === "string" &&
+                  /\/documents\/download\//.test(href)
+                ) {
+                  if (self._capture(href, self._pendingTag)) {
+                    self._pendingTag = null;
+                    return; // suppress programmatic download click
+                  }
+                }
+                return origClick.apply(this, arguments);
+              };
+            };
+            if (w.HTMLAnchorElement) {
+              hookAnchorClick(w.HTMLAnchorElement.prototype);
+            }
+
+            // 5) Intercept Node appendChild / insertBefore for dynamic IFRAME elements
+            if (w.Node && w.Node.prototype) {
+              const interceptIframeNode = (node) => {
+                if (!node || node.nodeType !== 1) return;
+                if (
+                  node.tagName === "IFRAME" ||
+                  (w.HTMLIFrameElement && node instanceof w.HTMLIFrameElement)
+                ) {
+                  const src = node.getAttribute("src") || node.src;
+                  if (
+                    typeof src === "string" &&
+                    /\/documents\/download\//.test(src)
+                  ) {
+                    if (self._capture(src, self._pendingTag)) {
+                      self._pendingTag = null;
+                      try {
+                        node.removeAttribute("src");
+                      } catch (_) {}
+                      try {
+                        node.src = "about:blank";
+                      } catch (_) {}
+                    }
+                  }
+                }
+              };
+              const origAppend = w.Node.prototype.appendChild;
+              if (typeof origAppend === "function") {
+                w.Node.prototype.appendChild = function (child) {
+                  interceptIframeNode(child);
+                  return origAppend.call(this, child);
+                };
+              }
+              const origInsert = w.Node.prototype.insertBefore;
+              if (typeof origInsert === "function") {
+                w.Node.prototype.insertBefore = function (newNode, refNode) {
+                  interceptIframeNode(newNode);
+                  return origInsert.call(this, newNode, refNode);
+                };
+              }
+            }
+
+            // 6) Intercept window.open
+            const hookOpen = (obj) => {
+              if (!obj || typeof obj.open !== "function") return;
+              const origOpen = obj.open;
+              const openDesc = Object.getOwnPropertyDescriptor(obj, "open");
+              const canAssignOpen =
+                !openDesc ||
+                openDesc.writable ||
+                typeof openDesc.set === "function";
+              if (canAssignOpen) {
+                obj.open = function (url, ...rest) {
                   if (
                     typeof url === "string" &&
                     /\/documents\/download\//.test(url)
                   ) {
                     if (self._capture(url, self._pendingTag)) {
                       self._pendingTag = null;
-                      return; // suppress the iframe navigation
+                      return null; // suppress new tab
                     }
                   }
-                  desc.set.call(this, url);
-                },
-                get: desc.get,
-                configurable: true,
-              },
-            );
-          }
+                  return origOpen.call(this, url, ...rest);
+                };
+              }
+            };
+            hookOpen(w);
+            if (w.Window && w.Window.prototype) hookOpen(w.Window.prototype);
 
-          // 3) Intercept window.open to /documents/download/ (document-merge and
-          // any flow that streams the file into a new tab). Suppress the tab and
-          // fetch the blob ourselves so it lands under a sentinel name.
-          const origOpen = unsafeWindow.open;
-          if (typeof origOpen === "function") {
-            const openDesc = Object.getOwnPropertyDescriptor(
-              unsafeWindow,
-              "open",
-            );
-            const canAssignOpen =
-              !openDesc ||
-              openDesc.writable ||
-              typeof openDesc.set === "function";
-            if (canAssignOpen) {
-              unsafeWindow.open = function (url, ...rest) {
-                if (
-                  typeof url === "string" &&
-                  /\/documents\/download\//.test(url)
-                ) {
-                  if (self._capture(url, self._pendingTag)) {
-                    self._pendingTag = null;
-                    return null; // suppress the new tab
-                  }
-                }
-                return origOpen.call(this, url, ...rest);
-              };
-            } else {
-              console.warn(
-                "⚠️ window.open is read-only; new-tab merge capture disabled",
-              );
-            }
-          }
-
-          // 4) Hook the document-merge ("mergeDocx") AJAX response. Clicking
-          // <button class="...save-button">Merge</button> POSTs to
-          // /caseFiles/mergeDocx/{ids} and receives {success, upload_id,
-          // activity_id}; the page then streams the merged file from
-          // /documents/download/{upload_id}/{activity_id}. We can't intercept
-          // the page's own window.location navigation (Location members are
-          // unforgeable), so we fetch that download URL directly ourselves.
-          const mOrigOpen = XMLHttpRequest.prototype.open;
-          const mOrigSend = XMLHttpRequest.prototype.send;
-          XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-            this.__merusMerge =
-              typeof url === "string" && /\/caseFiles\/merge/i.test(url);
-            return mOrigOpen.call(this, method, url, ...rest);
-          };
-          XMLHttpRequest.prototype.send = function (...args) {
-            if (this.__merusMerge) {
-              this.addEventListener("load", function () {
-                try {
-                  const json = JSON.parse(this.responseText || "{}");
+            // 7) Intercept Location.prototype.assign / replace
+            if (w.Location && w.Location.prototype) {
+              const origAssign = w.Location.prototype.assign;
+              if (typeof origAssign === "function") {
+                w.Location.prototype.assign = function (url) {
                   if (
-                    json.success &&
-                    json.upload_id != null &&
-                    json.activity_id != null
+                    typeof url === "string" &&
+                    /\/documents\/download\//.test(url)
                   ) {
-                    const dlUrl = `/documents/download/${json.upload_id}/${json.activity_id}`;
-                    self._captureMergeResult(dlUrl, self._pendingTag);
-                    self._pendingTag = null;
+                    if (self._capture(url, self._pendingTag)) {
+                      self._pendingTag = null;
+                      return;
+                    }
                   }
-                } catch (_e) {
-                  // response wasn't the expected merge JSON
-                }
-              });
+                  return origAssign.call(this, url);
+                };
+              }
+              const origReplace = w.Location.prototype.replace;
+              if (typeof origReplace === "function") {
+                w.Location.prototype.replace = function (url) {
+                  if (
+                    typeof url === "string" &&
+                    /\/documents\/download\//.test(url)
+                  ) {
+                    if (self._capture(url, self._pendingTag)) {
+                      self._pendingTag = null;
+                      return;
+                    }
+                  }
+                  return origReplace.call(this, url);
+                };
+              }
             }
-            return mOrigSend.apply(this, args);
-          };
+
+            // 8) Hook document-merge ("mergeDocx") AJAX response
+            if (w.XMLHttpRequest && w.XMLHttpRequest.prototype) {
+              const mOrigOpen = w.XMLHttpRequest.prototype.open;
+              const mOrigSend = w.XMLHttpRequest.prototype.send;
+              w.XMLHttpRequest.prototype.open = function (
+                method,
+                url,
+                ...rest
+              ) {
+                this.__merusMerge =
+                  typeof url === "string" && /\/caseFiles\/merge/i.test(url);
+                return mOrigOpen.call(this, method, url, ...rest);
+              };
+              w.XMLHttpRequest.prototype.send = function (...args) {
+                if (this.__merusMerge) {
+                  this.addEventListener("load", function () {
+                    try {
+                      const json = JSON.parse(this.responseText || "{}");
+                      if (
+                        json.success &&
+                        json.upload_id != null &&
+                        json.activity_id != null
+                      ) {
+                        const dlUrl = `/documents/download/${json.upload_id}/${json.activity_id}`;
+                        self._captureMergeResult(dlUrl, self._pendingTag);
+                        self._pendingTag = null;
+                      }
+                    } catch (_e) {
+                      // response wasn't the expected merge JSON
+                    }
+                  });
+                }
+                return mOrigSend.apply(this, args);
+              };
+            }
+          }
 
           console.log(
-            "✓ Merge template download capture enabled (iframe.src + window.open + mergeDocx)",
+            "✓ Merge template download capture enabled (iframe.src + setAttribute + window.open + anchor.click + mergeDocx)",
           );
         },
       };
