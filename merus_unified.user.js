@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.10.0.5
+// @version      3.10.0.6
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -28,253 +28,286 @@
     // ============================================================================
 
     const RequestThrottler = {
-        _initialized: false,
-        requestLog: new Map(),
-        WINDOW_MS: 4000,
-        MAX_REQUESTS: 12,
-        BLOCK_DURATION_MS: 2500,
-        blockedUntil: new Map(),
-        stats: { blocked: 0, allowed: 0, focusDebounced: 0 },
+      _initialized: false,
+      requestLog: new Map(),
+      WINDOW_MS: 3000,
+      MAX_REQUESTS: 20,
+      BLOCK_DURATION_MS: 2500,
+      blockedUntil: new Map(),
+      stats: { blocked: 0, allowed: 0, focusDebounced: 0 },
 
-        // Focus event debouncing
-        lastFocusTime: 0,
-        FOCUS_DEBOUNCE_MS: 1500,
+      // Focus event debouncing
+      lastFocusTime: 0,
+      FOCUS_DEBOUNCE_MS: 1500,
 
-        // URL patterns to throttle
-        THROTTLE_PATTERNS: [
-            '/activities/view/',
-            '/caseFiles/view/'
-        ],
+      // URL patterns to throttle
+      THROTTLE_PATTERNS: ["/activities/view/", "/caseFiles/view/"],
 
-        shouldThrottleUrl(url) {
-            if (!url) return false;
-            return this.THROTTLE_PATTERNS.some(pattern => url.includes(pattern));
-        },
+      shouldThrottleUrl(url) {
+        if (!url) return false;
+        return this.THROTTLE_PATTERNS.some((pattern) => url.includes(pattern));
+      },
 
-        shouldBlock(url) {
-            if (!this.shouldThrottleUrl(url)) return false;
+      shouldBlock(url) {
+        if (!this.shouldThrottleUrl(url)) return false;
 
-            const now = Date.now();
-            const urlKey = url.split('?')[0]; // Normalize URL without query params
+        const now = Date.now();
+        const urlKey = url.split("?")[0]; // Normalize URL without query params
 
-            // Check if currently blocked
-            const blocked = this.blockedUntil.get(urlKey);
-            if (blocked && now < blocked) {
-                this.stats.blocked++;
-                if (this.stats.blocked % 10 === 1) { // Log every 10th block to reduce spam
-                    console.warn(`⏳ Blocked (rate limit): ${urlKey} [${this.stats.blocked} total blocked]`);
-                }
-                return true;
-            }
-
-            // Periodically clean up old entries if map grows large
-            if (this.requestLog.size > 100) {
-                for (const [k, v] of this.requestLog.entries()) {
-                    if (!v.timestamps || v.timestamps.length === 0 || now - v.timestamps[v.timestamps.length - 1] > this.WINDOW_MS) {
-                        this.requestLog.delete(k);
-                    }
-                }
-            }
-
-            // Get or create request log entry with a sliding window
-            let log = this.requestLog.get(urlKey);
-            if (!log) {
-                log = { timestamps: [] };
-            }
-
-            // Retain only timestamps within the rolling window
-            log.timestamps = (log.timestamps || []).filter(t => now - t < this.WINDOW_MS);
-            log.timestamps.push(now);
-            this.requestLog.set(urlKey, log);
-
-            // Check if over limit
-            if (log.timestamps.length > this.MAX_REQUESTS) {
-                this.blockedUntil.set(urlKey, now + this.BLOCK_DURATION_MS);
-                this.stats.blocked++;
-                console.warn(`🚫 Rate limit hit: ${urlKey} (${log.timestamps.length} requests in ${this.WINDOW_MS}ms) - blocking for ${this.BLOCK_DURATION_MS/1000}s`);
-                return true;
-            }
-
-            this.stats.allowed++;
-            return false;
-        },
-
-        init() {
-            if (this._initialized) return;
-            this._initialized = true;
-
-            const self = this;
-
-            // ─────────────────────────────────────────────────────────────────
-            // Intercept XMLHttpRequest
-            // ─────────────────────────────────────────────────────────────────
-            const originalXHROpen = XMLHttpRequest.prototype.open;
-            const originalXHRSend = XMLHttpRequest.prototype.send;
-
-            XMLHttpRequest.prototype.open = function(method, url, ...args) {
-                this._throttleUrl = url;
-                this._throttleMethod = method;
-                return originalXHROpen.call(this, method, url, ...args);
-            };
-
-            XMLHttpRequest.prototype.send = function(...args) {
-                try {
-                    if (self.shouldBlock(this._throttleUrl)) {
-                        const xhr = this;
-                        setTimeout(() => {
-                            // Simulate a 429 response
-                            try {
-                                Object.defineProperty(xhr, 'status', { value: 429, configurable: true });
-                                Object.defineProperty(xhr, 'statusText', { value: 'Too Many Requests (Throttled by Userscript)', configurable: true });
-                                Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true });
-                                Object.defineProperty(xhr, 'responseText', { value: '{"error":"Rate limited by userscript"}', configurable: true });
-                            } catch (e) {
-                                // Property definition may fail on some browsers
-                            }
-                            try {
-                                xhr.dispatchEvent(new Event('readystatechange'));
-                                xhr.dispatchEvent(new Event('error'));
-                                xhr.dispatchEvent(new Event('loadend'));
-                            } catch (e) {
-                                // Event dispatch may fail
-                            }
-                        }, 0);
-                        return;
-                    }
-                    return originalXHRSend.apply(this, args);
-                } catch (e) {
-                    console.warn('Error in XHR interception:', e);
-                    return originalXHRSend.apply(this, args);
-                }
-            };
-
-            // ─────────────────────────────────────────────────────────────────
-            // Intercept fetch API
-            // ─────────────────────────────────────────────────────────────────
-            const originalFetch = window.fetch;
-            if (typeof originalFetch === "function") {
-              const wrappedFetch = function (input, ...args) {
-                const url =
-                  typeof input === "string"
-                    ? input
-                    : input?.url || input?.toString() || "";
-                if (self.shouldBlock(url)) {
-                  return Promise.resolve(
-                    new Response(
-                      JSON.stringify({ error: "Rate limited by userscript" }),
-                      {
-                        status: 429,
-                        statusText:
-                          "Too Many Requests (Throttled by Userscript)",
-                      },
-                    ),
-                  );
-                }
-                return originalFetch.call(this, input, ...args);
-              };
-
-              // In Firefox/userscript injected worlds, fetch can be read-only.
-              // If so, skip fetch interception and continue with XHR/focus guards.
-              const fetchDescriptor = Object.getOwnPropertyDescriptor(
-                window,
-                "fetch",
-              );
-              const canAssignFetch =
-                !fetchDescriptor ||
-                fetchDescriptor.writable ||
-                typeof fetchDescriptor.set === "function";
-
-              if (canAssignFetch) {
-                try {
-                  window.fetch = wrappedFetch;
-                } catch (e) {
-                  console.warn(
-                    "⚠️ Could not patch fetch (continuing without fetch throttle):",
-                    e,
-                  );
-                }
-              } else {
-                console.warn(
-                  "⚠️ window.fetch is read-only; fetch throttling disabled in this context",
-                );
-              }
-            }
-
-            // ─────────────────────────────────────────────────────────────────
-            // Debounce synthetic focus events (the root cause)
-            // MerusCase fires focus on every mouseenter which triggers API calls
-            // ─────────────────────────────────────────────────────────────────
-            this.patchFocusEvents();
-
-            console.log('✓ Request throttler enabled (protecting activities/view, caseFiles/view)');
-        },
-
-        patchFocusEvents() {
-            const self = this;
-
-            // Wait for MooTools to load, then patch
-            const patchWhenReady = () => {
-                // Patch window.fireEvent if it exists (MooTools)
-                if (typeof window.fireEvent === 'function') {
-                    const originalFireEvent = window.fireEvent;
-                    window.fireEvent = function(eventType, ...args) {
-                        if (eventType === 'focus') {
-                            const now = Date.now();
-                            if (now - self.lastFocusTime < self.FOCUS_DEBOUNCE_MS) {
-                                self.stats.focusDebounced++;
-                                return this; // Skip - too soon
-                            }
-                            self.lastFocusTime = now;
-                        }
-                        return originalFireEvent.call(this, eventType, ...args);
-                    };
-                    console.log('✓ Focus event debouncing enabled (MooTools window.fireEvent)');
-                    return true;
-                }
-                return false;
-            };
-
-            // Try immediately
-            if (!patchWhenReady()) {
-                // Retry after DOM loads
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', () => {
-                        setTimeout(patchWhenReady, 100);
-                    });
-                } else {
-                    setTimeout(patchWhenReady, 100);
-                }
-            }
-
-            // Also patch Element.prototype.fireEvent for MooTools elements
-            const patchElementFireEvent = () => {
-                if (typeof Element !== 'undefined' && Element.prototype && typeof Element.prototype.fireEvent === 'function') {
-                    const originalElementFireEvent = Element.prototype.fireEvent;
-                    Element.prototype.fireEvent = function(eventType, ...args) {
-                        if (eventType === 'focus' && this === window) {
-                            const now = Date.now();
-                            if (now - self.lastFocusTime < self.FOCUS_DEBOUNCE_MS) {
-                                self.stats.focusDebounced++;
-                                return this;
-                            }
-                            self.lastFocusTime = now;
-                        }
-                        return originalElementFireEvent.call(this, eventType, ...args);
-                    };
-                    console.log('✓ Focus event debouncing enabled (Element.prototype.fireEvent)');
-                }
-            };
-
-            setTimeout(patchElementFireEvent, 500);
-        },
-
-        getStats() {
-            return {
-                ...this.stats,
-                activeBlocks: [...this.blockedUntil.entries()].filter(([k, v]) => v > Date.now()).length,
-                trackedUrls: this.requestLog.size
-            };
+        // Check if currently blocked
+        const blocked = this.blockedUntil.get(urlKey);
+        if (blocked && now < blocked) {
+          this.stats.blocked++;
+          if (this.stats.blocked % 10 === 1) {
+            // Log every 10th block to reduce spam
+            console.warn(
+              `⏳ Blocked (rate limit): ${urlKey} [${this.stats.blocked} total blocked]`,
+            );
+            console.trace(`Rate limit hit: ${urlKey}`, log.timestamps.length);
+          }
+          return true;
         }
+
+        // Periodically clean up old entries if map grows large
+        if (this.requestLog.size > 100) {
+          for (const [k, v] of this.requestLog.entries()) {
+            if (
+              !v.timestamps ||
+              v.timestamps.length === 0 ||
+              now - v.timestamps[v.timestamps.length - 1] > this.WINDOW_MS
+            ) {
+              this.requestLog.delete(k);
+            }
+          }
+        }
+
+        // Get or create request log entry with a sliding window
+        let log = this.requestLog.get(urlKey);
+        if (!log) {
+          log = { timestamps: [] };
+        }
+
+        // Retain only timestamps within the rolling window
+        log.timestamps = (log.timestamps || []).filter(
+          (t) => now - t < this.WINDOW_MS,
+        );
+        log.timestamps.push(now);
+        this.requestLog.set(urlKey, log);
+
+        // Check if over limit
+        if (log.timestamps.length > this.MAX_REQUESTS) {
+          this.blockedUntil.set(urlKey, now + this.BLOCK_DURATION_MS);
+          this.stats.blocked++;
+          console.warn(
+            `🚫 Rate limit hit: ${urlKey} (${log.timestamps.length} requests in ${this.WINDOW_MS}ms) - blocking for ${this.BLOCK_DURATION_MS / 1000}s`,
+          );
+          console.trace(`Rate limit hit: ${urlKey}`, log.timestamps.length);
+          return true;
+        }
+
+        this.stats.allowed++;
+        return false;
+      },
+
+      init() {
+        if (this._initialized) return;
+        this._initialized = true;
+
+        const self = this;
+
+        // ─────────────────────────────────────────────────────────────────
+        // Intercept XMLHttpRequest
+        // ─────────────────────────────────────────────────────────────────
+        const originalXHROpen = XMLHttpRequest.prototype.open;
+        const originalXHRSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.open = function (method, url, ...args) {
+          this._throttleUrl = url;
+          this._throttleMethod = method;
+          return originalXHROpen.call(this, method, url, ...args);
+        };
+
+        XMLHttpRequest.prototype.send = function (...args) {
+          try {
+            if (self.shouldBlock(this._throttleUrl)) {
+              const xhr = this;
+              setTimeout(() => {
+                // Simulate a 429 response
+                try {
+                  Object.defineProperty(xhr, "status", {
+                    value: 429,
+                    configurable: true,
+                  });
+                  Object.defineProperty(xhr, "statusText", {
+                    value: "Too Many Requests (Throttled by Userscript)",
+                    configurable: true,
+                  });
+                  Object.defineProperty(xhr, "readyState", {
+                    value: 4,
+                    configurable: true,
+                  });
+                  Object.defineProperty(xhr, "responseText", {
+                    value: '{"error":"Rate limited by userscript"}',
+                    configurable: true,
+                  });
+                } catch (e) {
+                  // Property definition may fail on some browsers
+                }
+                try {
+                  xhr.dispatchEvent(new Event("readystatechange"));
+                  xhr.dispatchEvent(new Event("error"));
+                  xhr.dispatchEvent(new Event("loadend"));
+                } catch (e) {
+                  // Event dispatch may fail
+                }
+              }, 0);
+              return;
+            }
+            return originalXHRSend.apply(this, args);
+          } catch (e) {
+            console.warn("Error in XHR interception:", e);
+            return originalXHRSend.apply(this, args);
+          }
+        };
+
+        // ─────────────────────────────────────────────────────────────────
+        // Intercept fetch API
+        // ─────────────────────────────────────────────────────────────────
+        const originalFetch = window.fetch;
+        if (typeof originalFetch === "function") {
+          const wrappedFetch = function (input, ...args) {
+            const url =
+              typeof input === "string"
+                ? input
+                : input?.url || input?.toString() || "";
+            if (self.shouldBlock(url)) {
+              return Promise.resolve(
+                new Response(
+                  JSON.stringify({ error: "Rate limited by userscript" }),
+                  {
+                    status: 429,
+                    statusText: "Too Many Requests (Throttled by Userscript)",
+                  },
+                ),
+              );
+            }
+            return originalFetch.call(this, input, ...args);
+          };
+
+          // In Firefox/userscript injected worlds, fetch can be read-only.
+          // If so, skip fetch interception and continue with XHR/focus guards.
+          const fetchDescriptor = Object.getOwnPropertyDescriptor(
+            window,
+            "fetch",
+          );
+          const canAssignFetch =
+            !fetchDescriptor ||
+            fetchDescriptor.writable ||
+            typeof fetchDescriptor.set === "function";
+
+          if (canAssignFetch) {
+            try {
+              window.fetch = wrappedFetch;
+            } catch (e) {
+              console.warn(
+                "⚠️ Could not patch fetch (continuing without fetch throttle):",
+                e,
+              );
+            }
+          } else {
+            console.warn(
+              "⚠️ window.fetch is read-only; fetch throttling disabled in this context",
+            );
+          }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // Debounce synthetic focus events (the root cause)
+        // MerusCase fires focus on every mouseenter which triggers API calls
+        // ─────────────────────────────────────────────────────────────────
+        this.patchFocusEvents();
+
+        console.log(
+          "✓ Request throttler enabled (protecting activities/view, caseFiles/view)",
+        );
+      },
+
+      patchFocusEvents() {
+        const self = this;
+
+        // Wait for MooTools to load, then patch
+        const patchWhenReady = () => {
+          // Patch window.fireEvent if it exists (MooTools)
+          if (typeof window.fireEvent === "function") {
+            const originalFireEvent = window.fireEvent;
+            window.fireEvent = function (eventType, ...args) {
+              if (eventType === "focus") {
+                const now = Date.now();
+                if (now - self.lastFocusTime < self.FOCUS_DEBOUNCE_MS) {
+                  self.stats.focusDebounced++;
+                  return this; // Skip - too soon
+                }
+                self.lastFocusTime = now;
+              }
+              return originalFireEvent.call(this, eventType, ...args);
+            };
+            console.log(
+              "✓ Focus event debouncing enabled (MooTools window.fireEvent)",
+            );
+            return true;
+          }
+          return false;
+        };
+
+        // Try immediately
+        if (!patchWhenReady()) {
+          // Retry after DOM loads
+          if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", () => {
+              setTimeout(patchWhenReady, 100);
+            });
+          } else {
+            setTimeout(patchWhenReady, 100);
+          }
+        }
+
+        // Also patch Element.prototype.fireEvent for MooTools elements
+        const patchElementFireEvent = () => {
+          if (
+            typeof Element !== "undefined" &&
+            Element.prototype &&
+            typeof Element.prototype.fireEvent === "function"
+          ) {
+            const originalElementFireEvent = Element.prototype.fireEvent;
+            Element.prototype.fireEvent = function (eventType, ...args) {
+              if (eventType === "focus" && this === window) {
+                const now = Date.now();
+                if (now - self.lastFocusTime < self.FOCUS_DEBOUNCE_MS) {
+                  self.stats.focusDebounced++;
+                  return this;
+                }
+                self.lastFocusTime = now;
+              }
+              return originalElementFireEvent.call(this, eventType, ...args);
+            };
+            console.log(
+              "✓ Focus event debouncing enabled (Element.prototype.fireEvent)",
+            );
+          }
+        };
+
+        setTimeout(patchElementFireEvent, 500);
+      },
+
+      getStats() {
+        return {
+          ...this.stats,
+          activeBlocks: [...this.blockedUntil.entries()].filter(
+            ([k, v]) => v > Date.now(),
+          ).length,
+          trackedUrls: this.requestLog.size,
+        };
+      },
     };
 
     // Initialize throttler IMMEDIATELY (before MerusCase loads)
@@ -1232,7 +1265,7 @@
         // anchor clicks, and mergeDocx XHR can all trigger for the same download.
         // Remember normalized URL path briefly.
         _recent: new Map(),
-        _DEDUP_MS: 5000,
+        _DEDUP_MS: 3000,
 
         // Normalize URL to pathname (e.g. /documents/download/123/456) so relative
         // and absolute URLs match identically in the deduplication cache.
@@ -1313,8 +1346,8 @@
               const ct =
                 (headers.match(/content-type:\s*([^\r\n]+)/i) || [])[1] || "";
               const disp =
-                (headers.match(/content-disposition:\s*([^\r\n]+)/i) || [])[1] ||
-                "";
+                (headers.match(/content-disposition:\s*([^\r\n]+)/i) ||
+                  [])[1] || "";
               const looksLikeDoc =
                 resp.status >= 200 &&
                 resp.status < 300 &&
@@ -1457,8 +1490,7 @@
               const origClick = proto.click;
               proto.click = function () {
                 const href =
-                  this.href ||
-                  (this.getAttribute && this.getAttribute("href"));
+                  this.href || (this.getAttribute && this.getAttribute("href"));
                 if (
                   typeof href === "string" &&
                   /\/documents\/download\//.test(href)
