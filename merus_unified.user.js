@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.10.0.6
+// @version      3.11.0.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -21,6 +21,25 @@
 
 (function() {
     'use strict';
+
+    // ============================================================================
+    // FEATURE FLAGS
+    // ============================================================================
+    const FeatureFlags = {
+      RequestThrottler: true,
+      PreventCloseWarning: true,
+      DefaultAssignee: true,
+      SmartTab: true,
+      QuickPDFDownload: true,
+      MergeTemplateCapture: true,
+      SmartRenamer: true,
+      EmailRenamer: true,
+      AntinoteIntegration: true,
+      CombinedRecordsRenamer: true,
+      CalendarUserAutoCheck: true,
+      S3InboxButton: true,
+      Sidenotes: false // Disabled per user request
+    };
 
     // ============================================================================
     // REQUEST RATE LIMITER - MUST RUN FIRST (document-start)
@@ -311,7 +330,9 @@
     };
 
     // Initialize throttler IMMEDIATELY (before MerusCase loads)
-    RequestThrottler.init();
+    if (FeatureFlags.RequestThrottler) {
+      RequestThrottler.init();
+    }
 
     // ============================================================================
     // REMAINING MODULES - Wait for DOM
@@ -2472,9 +2493,11 @@
           wrap.appendChild(createBtn);
           wrap.appendChild(appendBtn);
           wrap.appendChild(copyLinkBtn);
-          wrap.appendChild(sidenotesBtn);
-          wrap.appendChild(sidenotesAppendBtn);
-          if (this.config.ENABLE_SIDENOTES_DIRECT) {
+          if (FeatureFlags.Sidenotes) {
+            wrap.appendChild(sidenotesBtn);
+            wrap.appendChild(sidenotesAppendBtn);
+          }
+          if (FeatureFlags.Sidenotes && this.config.ENABLE_SIDENOTES_DIRECT) {
             const sidenotesUrlBtn = document.createElement("button");
             sidenotesUrlBtn.className = "jjk-antinote-btn sidenotes-url";
             sidenotesUrlBtn.textContent = "🔗 Sidenotes (Direct)";
@@ -2687,16 +2710,18 @@
       // INITIALIZE ALL MODULES
       // ============================================================================
 
-      //   PreventCloseWarning.init();
-      DefaultAssignee.init();
-      SmartTab.init();
-      QuickPDFDownload.init();
-      MergeTemplateCapture.init();
-      SmartRenamer.init();
-      EmailRenamer.init();
-      AntinoteIntegration.init();
-      CombinedRecordsRenamer.init();
-      CalendarUserAutoCheck.init();
+      if (FeatureFlags.PreventCloseWarning) {
+        // PreventCloseWarning.init();
+      }
+      if (FeatureFlags.DefaultAssignee) DefaultAssignee.init();
+      if (FeatureFlags.SmartTab) SmartTab.init();
+      if (FeatureFlags.QuickPDFDownload) QuickPDFDownload.init();
+      if (FeatureFlags.MergeTemplateCapture) MergeTemplateCapture.init();
+      if (FeatureFlags.SmartRenamer) SmartRenamer.init();
+      if (FeatureFlags.EmailRenamer) EmailRenamer.init();
+      if (FeatureFlags.AntinoteIntegration) AntinoteIntegration.init();
+      if (FeatureFlags.CombinedRecordsRenamer) CombinedRecordsRenamer.init();
+      if (FeatureFlags.CalendarUserAutoCheck) CalendarUserAutoCheck.init();
 
       console.log("✅ All MerusCase utilities initialized successfully");
       console.log(
@@ -2876,7 +2901,9 @@
     }
 
     if (_isS3Page) {
-        _runOnDOMReady(() => S3InboxButton.init());
+        if (FeatureFlags.S3InboxButton) {
+            _runOnDOMReady(() => S3InboxButton.init());
+        }
     } else {
         _runOnDOMReady(initializeModules);
     }
