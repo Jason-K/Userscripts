@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.12.0.1
+// @version      3.12.1.0
 // @description  Combined MerusCase utilities: Default Assignee, PDF Download (with Browser View override), Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
@@ -1058,17 +1058,29 @@
         _btnEl: null,
 
         isOverrideActive() {
-          return Boolean(this._overrideOpenInBrowser);
+          try {
+            return sessionStorage.getItem('merus_pdf_browser_override') === '1';
+          } catch (_) {
+            return Boolean(this._overrideOpenInBrowser);
+          }
         },
 
         setOverride(active) {
           this._overrideOpenInBrowser = Boolean(active);
+          try {
+            if (this._overrideOpenInBrowser) {
+              sessionStorage.setItem('merus_pdf_browser_override', '1');
+            } else {
+              sessionStorage.removeItem('merus_pdf_browser_override');
+            }
+          } catch (_) {}
           this.updateButtonUI();
         },
 
         toggleOverride() {
-          this.setOverride(!this._overrideOpenInBrowser);
-          const msg = this._overrideOpenInBrowser
+          this.setOverride(!this.isOverrideActive());
+          const active = this.isOverrideActive();
+          const msg = active
             ? "🌐 PDF Mode: Open in Browser (Override Active)"
             : "📥 PDF Mode: Auto-Download (Default Restored)";
           Utils.showToast(msg);
@@ -1077,7 +1089,7 @@
 
         updateButtonUI() {
           if (!this._btnEl) return;
-          if (this._overrideOpenInBrowser) {
+          if (this.isOverrideActive()) {
             this._btnEl.classList.add("active");
             this._btnEl.textContent = "🌐 PDF: In Browser";
             this._btnEl.title =
@@ -1098,20 +1110,87 @@
             '.activity-details a[href*="/documents/download/"]'
           );
           if (link && link.href) {
-            const client = Utils.getCaseName();
-            if (client && client !== "Unknown Case") {
-              try {
-                GM_setValue(
-                  "merus_pending_meta",
-                  JSON.stringify({ client, ts: Date.now() }),
-                );
-              } catch (_) {}
-            }
-            window.open(link.href, "_blank", "noopener");
-            Utils.showToast("🌐 Opened active document in browser tab");
+            const domName = this._findDocumentNameFromDOM(link);
+            this.openInBrowser(link.href, domName);
             return true;
           }
           return false;
+        },
+
+        openInBrowser(targetUrl, domName) {
+          const client = Utils.getCaseName();
+          if (client && client !== 'Unknown Case') {
+            try {
+              GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
+            } catch (_) {}
+          }
+
+          const fullUrl = new URL(targetUrl, window.location.origin).href;
+
+          // Open the tab synchronously during user click to prevent popup blockers
+          let viewerTab = null;
+          try {
+            viewerTab = window.open('', '_blank');
+            if (viewerTab && viewerTab.document) {
+              viewerTab.document.title = (domName || 'Document') + ' - Loading...';
+              viewerTab.document.body.style.cssText =
+                'margin:0;background:#202124;color:#e8eaed;display:flex;align-items:center;justify-content:center;height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+              viewerTab.document.body.innerHTML = `
+                <div style="text-align:center;">
+                  <div style="font-size:28px;margin-bottom:12px;">📄</div>
+                  <div style="font-size:15px;font-weight:500;">Loading PDF in browser...</div>
+                  <div style="font-size:12px;opacity:0.6;margin-top:6px;">${domName || fullUrl}</div>
+                </div>
+              `;
+            }
+          } catch (e) {
+            console.warn('[MerusUtils] Could not pre-open viewer tab:', e);
+          }
+
+          Utils.showToast('🌐 Opening PDF in browser viewer...');
+
+          GM_xmlhttpRequest({
+            method: 'GET',
+            url: fullUrl,
+            responseType: 'blob',
+            onload: (resp) => {
+              try {
+                const rawBlob = resp.response;
+                // Force MIME type to application/pdf so browser renders it with its native PDF viewer
+                const pdfBlob = new Blob([rawBlob], { type: 'application/pdf' });
+                const blobUrl = URL.createObjectURL(pdfBlob);
+
+                if (viewerTab && !viewerTab.closed) {
+                  viewerTab.location.href = blobUrl;
+                  setTimeout(() => {
+                    try {
+                      if (viewerTab.document) {
+                        viewerTab.document.title = (domName || 'Document') + '.pdf';
+                      }
+                    } catch (_) {}
+                  }, 600);
+                } else {
+                  window.open(blobUrl, '_blank');
+                }
+
+                // Revoke object URL after 5 minutes
+                setTimeout(() => {
+                  try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+                }, 300_000);
+              } catch (err) {
+                console.error('[MerusUtils] Error displaying PDF blob in browser:', err);
+                if (viewerTab && !viewerTab.closed) {
+                  viewerTab.location.href = fullUrl;
+                }
+              }
+            },
+            onerror: (err) => {
+              console.error('[MerusUtils] XHR failed while loading PDF for browser view:', err);
+              if (viewerTab && !viewerTab.closed) {
+                viewerTab.location.href = fullUrl;
+              }
+            },
+          });
         },
 
         injectUI() {
@@ -1315,17 +1394,9 @@
             this.isOverrideActive() || event.altKey || event.metaKey;
 
           if (isOverride) {
-            // Prevent MerusCase's bubble-phase handler from opening its inline
-            // preview lightbox; open directly in browser tab instead.
+            // Prevent MerusCase's bubble-phase handler from opening its inline preview lightbox
             event.preventDefault();
             event.stopPropagation();
-
-            const client = Utils.getCaseName();
-            if (client && client !== 'Unknown Case') {
-              try {
-                GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
-              } catch (_) {}
-            }
 
             // If user clicked DOCX button, prefer companion PDF link so it opens cleanly in browser's PDF viewer
             let targetUrl = href;
@@ -1342,18 +1413,9 @@
               }
             }
 
-            console.log('[MerusUtils] PDF override active — opening directly in browser:', targetUrl);
-            const win = window.open(targetUrl, '_blank', 'noopener');
-            if (!win) {
-              const a = document.createElement('a');
-              a.href = targetUrl;
-              a.target = '_blank';
-              a.rel = 'noopener';
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-            }
-            Utils.showToast('🌐 Opening PDF in browser tab');
+            const domName = this._findDocumentNameFromDOM(link);
+            console.log('[MerusUtils] PDF override active — loading in browser viewer:', targetUrl);
+            this.openInBrowser(targetUrl, domName);
             return;
           }
 
