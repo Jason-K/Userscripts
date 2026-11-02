@@ -1327,8 +1327,32 @@
               } catch (_) {}
             }
 
-            console.log('[MerusUtils] PDF override active — opening directly in browser:', href);
-            window.open(href, '_blank', 'noopener');
+            // If user clicked DOCX button, prefer companion PDF link so it opens cleanly in browser's PDF viewer
+            let targetUrl = href;
+            const isDocxButton = link.getAttribute('aria-label') === 'Download Document';
+            if (isDocxButton) {
+              const container = link.closest(
+                'tr, li, [class*="attach"], [class*="doc"], [class*="file"], [class*="activity"]'
+              );
+              const pdfHref = container
+                ?.querySelector('a[aria-label="Download document in Acrobat (PDF) Format"]')
+                ?.href;
+              if (pdfHref) {
+                targetUrl = pdfHref;
+              }
+            }
+
+            console.log('[MerusUtils] PDF override active — opening directly in browser:', targetUrl);
+            const win = window.open(targetUrl, '_blank', 'noopener');
+            if (!win) {
+              const a = document.createElement('a');
+              a.href = targetUrl;
+              a.target = '_blank';
+              a.rel = 'noopener';
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            }
             Utils.showToast('🌐 Opening PDF in browser tab');
             return;
           }
@@ -1391,6 +1415,14 @@
             responseType: 'blob',
             onload: (resp) => {
               try {
+                if (this.isOverrideActive()) {
+                  console.log('[MerusUtils] PDF override active — opening in browser instead of saving to inbox');
+                  const blob = new Blob([resp.response], { type: 'application/pdf' });
+                  const objUrl = URL.createObjectURL(blob);
+                  window.open(objUrl, '_blank');
+                  setTimeout(() => URL.revokeObjectURL(objUrl), 60_000);
+                  return;
+                }
                 const name = this._buildSentinelName(client, resp, domName, companionFinalUrl, merusTag);
                 this._saveBlob(resp.response, name);
                 console.log('[MerusUtils] saving to inbox as:', name);
@@ -1498,6 +1530,10 @@
           if (typeof url !== "string" || !/\/documents\/download\//.test(url)) {
             return false;
           }
+          if (QuickPDFDownload.isOverrideActive()) {
+            // Override active: do not capture or suppress; allow normal browser navigation/window.open to proceed
+            return false;
+          }
           const client = Utils.getCaseName();
           if (!client || client === "Unknown Case") return false;
           if (this._claimOnce(url)) return true; // another vector is handling it
@@ -1508,15 +1544,6 @@
             url,
             tag ? `| tag: ${tag}` : "",
           );
-          if (QuickPDFDownload.isOverrideActive()) {
-            console.log(
-              "[MerusUtils] PDF override active for merge — opening in browser tab:",
-              url,
-            );
-            window.open(url, "_blank", "noopener");
-            Utils.showToast("🌐 Opening merged document in browser tab");
-            return true;
-          }
           QuickPDFDownload._fetchAndSave(client, url, "", null, tag);
           return true;
         },
