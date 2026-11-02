@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MerusCase Unified Utilities
 // @namespace    https://github.com/Jason-K/Userscripts
-// @version      3.11.0.0
-// @description  Combined MerusCase utilities: Default Assignee, PDF Download, Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
+// @version      3.12.0.0
+// @description  Combined MerusCase utilities: Default Assignee, PDF Download (with Browser View override), Smart Renamer, Email Renamer, Smart Tab, Close Warning Prevention, Antinote Integration, and Request Throttling
 // @author       Jason Knox
 // @match        https://*.meruscase.com/*
 // @match        https://meruscase-customer-uploads.s3.amazonaws.com/*
@@ -631,6 +631,35 @@
 
           return result;
         },
+
+        showToast(message) {
+          const toast = document.createElement("div");
+          toast.textContent = message;
+          toast.style.cssText = [
+            "position:fixed",
+            "bottom:64px",
+            "right:18px",
+            "z-index:9999999",
+            "background:rgba(22, 27, 34, 0.95)",
+            "color:#fff",
+            "padding:10px 16px",
+            "border-radius:10px",
+            "font:600 12px/1.3 -apple-system,system-ui,Segoe UI,Roboto,sans-serif",
+            "box-shadow:0 6px 20px rgba(0,0,0,.35)",
+            "border:1px solid rgba(255,255,255,0.15)",
+            "opacity:0",
+            "transition:opacity .2s ease",
+            "pointer-events:none",
+          ].join(";");
+          document.body.appendChild(toast);
+          requestAnimationFrame(() => {
+            toast.style.opacity = "1";
+          });
+          setTimeout(() => {
+            toast.style.opacity = "0";
+            setTimeout(() => toast.remove(), 250);
+          }, 2500);
+        },
       };
 
       const ClipboardUtils = {
@@ -1025,6 +1054,92 @@
       // ============================================================================
 
       const QuickPDFDownload = {
+        _overrideOpenInBrowser: false,
+        _btnEl: null,
+
+        isOverrideActive() {
+          return Boolean(this._overrideOpenInBrowser);
+        },
+
+        setOverride(active) {
+          this._overrideOpenInBrowser = Boolean(active);
+          this.updateButtonUI();
+        },
+
+        toggleOverride() {
+          this.setOverride(!this._overrideOpenInBrowser);
+          const msg = this._overrideOpenInBrowser
+            ? "🌐 PDF Mode: Open in Browser (Override Active)"
+            : "📥 PDF Mode: Auto-Download (Default Restored)";
+          Utils.showToast(msg);
+          console.log("[MerusUtils]", msg);
+        },
+
+        updateButtonUI() {
+          if (!this._btnEl) return;
+          if (this._overrideOpenInBrowser) {
+            this._btnEl.classList.add("active");
+            this._btnEl.textContent = "🌐 PDF: In Browser";
+            this._btnEl.title =
+              "PDF Mode: Open in Browser (Override Active)\nClick to restore: Auto-Download default\nAlt+Click to open current active document in browser";
+          } else {
+            this._btnEl.classList.remove("active");
+            this._btnEl.textContent = "📥 PDF: Download";
+            this._btnEl.title =
+              "PDF Mode: Auto-Download (Default)\nClick to override: Open PDFs in browser\nAlt+Click any PDF link to open in browser once";
+          }
+        },
+
+        openActiveDocumentInBrowser() {
+          const link = document.querySelector(
+            '.box-view a[aria-label="Download document in Acrobat (PDF) Format"], ' +
+            '.box-view a[aria-label="Download Document"], ' +
+            '.box-view a[href*="/documents/download/"], ' +
+            '.activity-details a[href*="/documents/download/"]'
+          );
+          if (link && link.href) {
+            const client = Utils.getCaseName();
+            if (client && client !== "Unknown Case") {
+              try {
+                GM_setValue(
+                  "merus_pending_meta",
+                  JSON.stringify({ client, ts: Date.now() }),
+                );
+              } catch (_) {}
+            }
+            window.open(link.href, "_blank", "noopener");
+            Utils.showToast("🌐 Opened active document in browser tab");
+            return true;
+          }
+          return false;
+        },
+
+        injectUI() {
+          let wrap = document.querySelector(".jjk-antinote-wrap");
+          if (!wrap) {
+            wrap = document.createElement("div");
+            wrap.className = "jjk-antinote-wrap";
+            document.body.appendChild(wrap);
+          }
+
+          if (this._btnEl && this._btnEl.isConnected) return;
+
+          const btn = document.createElement("button");
+          btn.className = "jjk-antinote-btn pdf-override";
+          this._btnEl = btn;
+          this.updateButtonUI();
+
+          btn.addEventListener("click", (e) => {
+            if (e.altKey || e.shiftKey) {
+              const opened = this.openActiveDocumentInBrowser();
+              if (opened) return;
+            }
+            this.toggleOverride();
+          });
+
+          wrap.appendChild(btn);
+        },
+
         // Read the Merus document type tag (e.g. "MEDICAL", "CORRESPONDENCE")
         // from the activity-details sibling of a document's list-group-item row.
         _findMerusTag(element) {
@@ -1195,6 +1310,29 @@
           if (!link) return;
           const href = link.href;
           if (!href) return;
+
+          const isOverride =
+            this.isOverrideActive() || event.altKey || event.metaKey;
+
+          if (isOverride) {
+            // Prevent MerusCase's bubble-phase handler from opening its inline
+            // preview lightbox; open directly in browser tab instead.
+            event.preventDefault();
+            event.stopPropagation();
+
+            const client = Utils.getCaseName();
+            if (client && client !== 'Unknown Case') {
+              try {
+                GM_setValue('merus_pending_meta', JSON.stringify({ client, ts: Date.now() }));
+              } catch (_) {}
+            }
+
+            console.log('[MerusUtils] PDF override active — opening directly in browser:', href);
+            window.open(href, '_blank', 'noopener');
+            Utils.showToast('🌐 Opening PDF in browser tab');
+            return;
+          }
+
           // Prevent MerusCase's bubble-phase handler from opening its inline
           // preview lightbox; we handle the download ourselves.
           event.preventDefault();
@@ -1271,7 +1409,38 @@
           const handler = this.handleDownloadClick.bind(this);
           document.addEventListener('click', handler, true);
           document.addEventListener('auxclick', handler, true);
-          console.log('✓ Quick PDF download (inbox capture) enabled');
+
+          GM_addStyle(`
+            .jjk-antinote-wrap{position:fixed;right:18px;bottom:18px;z-index:999999;display:flex;gap:10px}
+            .jjk-antinote-btn.pdf-override{
+              background:#30363d !important;
+              color:#f0f6fc !important;
+              border:1px solid rgba(255,255,255,0.18) !important;
+              padding:10px 14px;
+              border-radius:12px;
+              box-shadow:0 6px 20px rgba(0,0,0,.18);
+              font:600 13px/1 -apple-system,sans-serif;
+              cursor:pointer;
+              opacity:.95;
+              transition:all .15s ease;
+            }
+            .jjk-antinote-btn.pdf-override:hover{
+              opacity:1;
+              background:#3c444d !important;
+            }
+            .jjk-antinote-btn.pdf-override.active{
+              background:#d97706 !important;
+              color:#ffffff !important;
+              border-color:#f59e0b !important;
+              box-shadow:0 0 14px rgba(217,119,6,0.6);
+            }
+            .jjk-antinote-btn.pdf-override.active:hover{
+              background:#b45309 !important;
+            }
+          `);
+
+          this.injectUI();
+          console.log('✓ Quick PDF download (with UI override) enabled');
         },
       };
 
@@ -1339,6 +1508,15 @@
             url,
             tag ? `| tag: ${tag}` : "",
           );
+          if (QuickPDFDownload.isOverrideActive()) {
+            console.log(
+              "[MerusUtils] PDF override active for merge — opening in browser tab:",
+              url,
+            );
+            window.open(url, "_blank", "noopener");
+            Utils.showToast("🌐 Opening merged document in browser tab");
+            return true;
+          }
           QuickPDFDownload._fetchAndSave(client, url, "", null, tag);
           return true;
         },
@@ -1358,6 +1536,15 @@
             url,
             tag ? `| tag: ${tag}` : "",
           );
+          if (QuickPDFDownload.isOverrideActive()) {
+            console.log(
+              "[MerusUtils] PDF override active for mergeDocx — opening in browser tab:",
+              url,
+            );
+            window.open(url, "_blank", "noopener");
+            Utils.showToast("🌐 Opening merged document in browser tab");
+            return true;
+          }
           GM_xmlhttpRequest({
             method: "GET",
             url,
@@ -2053,30 +2240,7 @@
         },
 
         showToast(message) {
-          const toast = document.createElement("div");
-          toast.textContent = message;
-          toast.style.cssText = [
-            "position:fixed",
-            "bottom:14px",
-            "right:14px",
-            "z-index:999999",
-            "background:rgba(30,30,30,0.95)",
-            "color:#fff",
-            "padding:10px 12px",
-            "border-radius:10px",
-            "font:12px/1.2 -apple-system,system-ui,Segoe UI,Roboto",
-            "box-shadow:0 6px 20px rgba(0,0,0,.25)",
-            "opacity:0",
-            "transition:opacity .2s",
-          ].join(";");
-          document.body.appendChild(toast);
-          requestAnimationFrame(() => {
-            toast.style.opacity = "1";
-          });
-          setTimeout(() => {
-            toast.style.opacity = "0";
-            setTimeout(() => toast.remove(), 200);
-          }, 2500);
+          Utils.showToast(message);
         },
 
         lastLaunchAt: 0,
@@ -2456,7 +2620,9 @@
                 .jjk-antinote-btn.sidenotes-url{background:#0b5ed7}
                 `);
 
-          const wrap = document.createElement("div");
+          const wrap =
+            document.querySelector(".jjk-antinote-wrap") ||
+            document.createElement("div");
           wrap.className = "jjk-antinote-wrap";
 
           const createBtn = document.createElement("button");
@@ -2506,7 +2672,9 @@
             sidenotesUrlBtn.onclick = () => this.addToSidenotes("url");
             wrap.appendChild(sidenotesUrlBtn);
           }
-          document.body.appendChild(wrap);
+          if (!wrap.parentElement) {
+            document.body.appendChild(wrap);
+          }
 
           document.addEventListener("keydown", (e) => {
             if (e.altKey && e.shiftKey && e.key === "A") {
