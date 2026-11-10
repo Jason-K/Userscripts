@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         EAMS Case Scraper
 // @namespace    https://github.com/Jason-K
-// @version      1.1
+// @version      1.2
 // @author       Jason K.
 // @description  Autofills requester gate and scrapes case details, parties, body parts, events, and status from EAMS General Case Information searches with rich text, markdown, and CSV exports.
 // @match        https://eams.dwc.ca.gov/WebEnhancement/*
-// @grant        GM_setClipboard
+// @grant        none
 // @run-at       document-idle
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/eams_case-scraper.user.js
 // @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/eams_case-scraper.user.js
@@ -513,7 +513,42 @@
   }
 
   /**
+   * Generates TSV (Tab-Separated Values) plain text for clipboard fallback.
+   */
+  function buildTsvTable(cases) {
+    const headers = [
+      'EAMS Case Number', 'Board Location', 'Status', 'Injury Type', 'Injury Date',
+      'Employers', 'Body Parts', 'Parties', 'Notes', 'Events'
+    ];
+
+    const escapeTsvCell = (val) => {
+      const text = formatArrayForCell(val);
+      return text.replace(/\t/g, ' ').replace(/\r?\n/g, ' | ');
+    };
+
+    const headerLine = headers.join('\t');
+    const rows = cases.map((c) => {
+      return [
+        escapeTsvCell(c.eams_case_number),
+        escapeTsvCell(c.board_location),
+        escapeTsvCell(c.status),
+        escapeTsvCell(c.injury_type),
+        escapeTsvCell(c.injury_date),
+        escapeTsvCell(c.employers),
+        escapeTsvCell(c.body_parts),
+        escapeTsvCell(c.parties),
+        escapeTsvCell(c.notes),
+        escapeTsvCell(c.events)
+      ].join('\t');
+    });
+
+    return [headerLine, ...rows].join('\n');
+  }
+
+  /**
    * Generates Rich Text HTML table with Parties column.
+   * Uses standard Office/Word CF_HTML fragments (<!--StartFragment--> and <!--EndFragment-->)
+   * and comprehensive inline styles to prevent being embedded as an Edge/OLE object.
    */
   function buildRichHtmlTable(cases, workerLastName, workerFirstName) {
     const title = `EAMS Cases: ${workerLastName ? workerLastName + ', ' : ''}${workerFirstName || ''}`.trim();
@@ -539,45 +574,59 @@
       return blocks.length > 0 ? blocks.join('<br><br>') : 'n/a';
     }
 
+    const cellStyle = 'border: 1px solid #bfbfbf; padding: 6px 8px; vertical-align: top; text-align: left;';
+    const thStyle = 'border: 1px solid #bfbfbf; padding: 6px 8px; vertical-align: top; text-align: left; background-color: #f2f4f7; font-weight: bold;';
+
     const rowsHtml = cases.map((c) => {
       return `
         <tr>
-          <td style="font-weight: 600;">${escapeHtml(c.eams_case_number)}</td>
-          <td>${escapeHtml(c.board_location)}</td>
-          <td><span style="font-weight: 500;">${escapeHtml(c.status)}</span></td>
-          <td>${escapeHtml(c.injury_type)}</td>
-          <td>${escapeHtml(c.injury_date)}</td>
-          <td>${escapeHtml(formatArrayForCell(c.employers)).replace(/\n/g, '<br>')}</td>
-          <td>${escapeHtml(formatArrayForCell(c.body_parts)).replace(/\n/g, '<br>')}</td>
-          <td>${formatRichParties(c)}</td>
-          <td>${escapeHtml(c.notes).replace(/\n/g, '<br>')}</td>
-          <td>${escapeHtml(formatArrayForCell(c.events)).replace(/\n/g, '<br>')}</td>
+          <td style="${cellStyle} font-weight: bold;">${escapeHtml(c.eams_case_number)}</td>
+          <td style="${cellStyle}">${escapeHtml(c.board_location)}</td>
+          <td style="${cellStyle}">${escapeHtml(c.status)}</td>
+          <td style="${cellStyle}">${escapeHtml(c.injury_type)}</td>
+          <td style="${cellStyle}">${escapeHtml(c.injury_date)}</td>
+          <td style="${cellStyle}">${escapeHtml(formatArrayForCell(c.employers)).replace(/\n/g, '<br>')}</td>
+          <td style="${cellStyle}">${escapeHtml(formatArrayForCell(c.body_parts)).replace(/\n/g, '<br>')}</td>
+          <td style="${cellStyle}">${formatRichParties(c)}</td>
+          <td style="${cellStyle}">${escapeHtml(c.notes).replace(/\n/g, '<br>')}</td>
+          <td style="${cellStyle}">${escapeHtml(formatArrayForCell(c.events)).replace(/\n/g, '<br>')}</td>
         </tr>`;
     }).join('');
 
-    return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.4;">
-        <h3 style="margin-bottom: 8px;">${escapeHtml(title)}</h3>
-        <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; border: 1px solid #ccc; width: 100%;">
-          <thead>
-            <tr style="background-color: #f2f4f7; text-align: left; font-weight: 600;">
-              <th>EAMS Case Number</th>
-              <th>Board Location</th>
-              <th>Status</th>
-              <th>Injury Type</th>
-              <th>Injury Date</th>
-              <th>Employers</th>
-              <th>Body Parts</th>
-              <th>Parties</th>
-              <th>Notes</th>
-              <th>Events</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-      </div>`;
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+table { border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.35; }
+th, td { border: 1px solid #bfbfbf; padding: 6px 8px; vertical-align: top; text-align: left; }
+th { background-color: #f2f4f7; font-weight: bold; }
+</style>
+</head>
+<body>
+<!--StartFragment-->
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; border: 1px solid #bfbfbf; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.35;">
+  <thead>
+    <tr style="background-color: #f2f4f7; font-weight: bold;">
+      <th style="${thStyle}">EAMS Case Number</th>
+      <th style="${thStyle}">Board Location</th>
+      <th style="${thStyle}">Status</th>
+      <th style="${thStyle}">Injury Type</th>
+      <th style="${thStyle}">Injury Date</th>
+      <th style="${thStyle}">Employers</th>
+      <th style="${thStyle}">Body Parts</th>
+      <th style="${thStyle}">Parties</th>
+      <th style="${thStyle}">Notes</th>
+      <th style="${thStyle}">Events</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rowsHtml}
+  </tbody>
+</table>
+<!--EndFragment-->
+</body>
+</html>`;
   }
 
   /**
@@ -720,19 +769,12 @@
 
   // --- Clipboard & Download Triggers ---
 
+  /**
+   * Writes native dual-flavor HTML + Plain Text directly to clipboard.
+   * Uses standard ClipboardItem to avoid Violentmonkey/Tampermonkey wrapping the payload
+   * as an embedded Microsoft Edge / OLE object.
+   */
   async function copyToClipboard(richHtml, plainText) {
-    if (typeof GM_setClipboard === 'function') {
-      try {
-        GM_setClipboard(richHtml, { type: 'html', minType: 'text' });
-        return true;
-      } catch {
-        try {
-          GM_setClipboard(plainText, 'text');
-          return true;
-        } catch {}
-      }
-    }
-
     if (navigator.clipboard && window.ClipboardItem) {
       try {
         const item = new ClipboardItem({
@@ -742,75 +784,36 @@
         await navigator.clipboard.write([item]);
         return true;
       } catch (err) {
-        console.warn('ClipboardItem copy failed, using fallback listener', err);
+        console.warn('ClipboardItem write failed, trying fallback copy listener', err);
       }
     }
 
-    const container = document.createElement('div');
-    container.contentEditable = 'true';
-    container.innerHTML = richHtml;
-    Object.assign(container.style, {
-      position: 'fixed',
-      left: '-9999px',
-      top: '-9999px',
-      opacity: '0'
-    });
-    document.body.appendChild(container);
-
-    const range = document.createRange();
-    range.selectNodeContents(container);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-
+    // Fallback: synchronous copy event listener
     const listener = (e) => {
       e.clipboardData.setData('text/plain', plainText);
       e.clipboardData.setData('text/html', richHtml);
       e.preventDefault();
     };
     document.addEventListener('copy', listener, { once: true });
-    const success = document.execCommand('copy');
-    sel.removeAllRanges();
-    document.body.removeChild(container);
-    return success;
+    return document.execCommand('copy');
   }
 
   async function copyPlainText(plainText) {
-    if (typeof GM_setClipboard === 'function') {
-      try {
-        GM_setClipboard(plainText, 'text');
-        return true;
-      } catch {}
-    }
-
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try {
         await navigator.clipboard.writeText(plainText);
         return true;
       } catch (e) {
-        console.warn('clipboard.writeText failed, using fallback', e);
+        console.warn('clipboard.writeText failed, using fallback copy listener', e);
       }
     }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = plainText;
-    Object.assign(textarea.style, {
-      position: 'fixed',
-      left: '-9999px',
-      top: '-9999px',
-      opacity: '0'
-    });
-    document.body.appendChild(textarea);
-    textarea.select();
 
     const listener = (e) => {
       e.clipboardData.setData('text/plain', plainText);
       e.preventDefault();
     };
     document.addEventListener('copy', listener, { once: true });
-    const success = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    return success;
+    return document.execCommand('copy');
   }
 
   function downloadFile(content, mimeType, filename) {
@@ -970,7 +973,7 @@
     const btnClipRich = makeButton('📋 Clipboard (Rich)', '#2563eb', '#ffffff', async () => {
       const data = await ensureScraped(statusEl);
       const richHtml = buildRichHtmlTable(data.cases, data.workerLastName, data.workerFirstName);
-      const plainText = buildMarkdownTable(data.cases);
+      const plainText = buildTsvTable(data.cases);
       await copyToClipboard(richHtml, plainText);
       showToast('✅ Copied Rich Table to clipboard!');
     });
