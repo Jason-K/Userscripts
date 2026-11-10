@@ -474,6 +474,16 @@
       const status = determineStatus(parsedEvents);
       bodyParts.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
+      // Add "Location: LOCATION" at the top of the Notes column entry
+      const notesList = [];
+      if (c.board_location) {
+        notesList.push(`Location: ${c.board_location}`);
+      }
+      if (caseNotes.length > 0) {
+        notesList.push(...caseNotes);
+      }
+      const finalNotes = notesList.length > 0 ? notesList.join('\n') : '(none)';
+
       results.push({
         eams_case_number: c.eams_case_number,
         board_location: c.board_location,
@@ -483,7 +493,7 @@
         body_parts: bodyParts,
         parties_data: partiesObj,
         parties: partiesFormatted,
-        notes: caseNotes.length > 0 ? caseNotes.join('\n') : '(none)',
+        notes: finalNotes,
         status: status,
         events: parsedEvents.map((e) => e.entry)
       });
@@ -517,8 +527,7 @@
    */
   function buildTsvTable(cases) {
     const headers = [
-      'EAMS Case Number', 'Board Location', 'Status', 'Injury Type', 'Injury Date',
-      'Employers', 'Body Parts', 'Parties', 'Notes', 'Events'
+      'DOI', 'TYPE', 'BODY PARTS', 'STATUS', 'EAMS #', 'EVENTS', 'PARTIES', 'NOTES'
     ];
 
     const escapeTsvCell = (val) => {
@@ -529,16 +538,14 @@
     const headerLine = headers.join('\t');
     const rows = cases.map((c) => {
       return [
-        escapeTsvCell(c.eams_case_number),
-        escapeTsvCell(c.board_location),
-        escapeTsvCell(c.status),
-        escapeTsvCell(c.injury_type),
         escapeTsvCell(c.injury_date),
-        escapeTsvCell(c.employers),
+        escapeTsvCell(c.injury_type),
         escapeTsvCell(c.body_parts),
+        escapeTsvCell(c.status),
+        escapeTsvCell(c.eams_case_number),
+        escapeTsvCell(c.events),
         escapeTsvCell(c.parties),
-        escapeTsvCell(c.notes),
-        escapeTsvCell(c.events)
+        escapeTsvCell(c.notes)
       ].join('\t');
     });
 
@@ -580,16 +587,14 @@
     const rowsHtml = cases.map((c) => {
       return `
         <tr>
-          <td style="${cellStyle} font-weight: bold;">${escapeHtml(c.eams_case_number)}</td>
-          <td style="${cellStyle}">${escapeHtml(c.board_location)}</td>
-          <td style="${cellStyle}">${escapeHtml(c.status)}</td>
-          <td style="${cellStyle}">${escapeHtml(c.injury_type)}</td>
           <td style="${cellStyle}">${escapeHtml(c.injury_date)}</td>
-          <td style="${cellStyle}">${escapeHtml(formatArrayForCell(c.employers)).replace(/\n/g, '<br>')}</td>
+          <td style="${cellStyle}">${escapeHtml(c.injury_type)}</td>
           <td style="${cellStyle}">${escapeHtml(formatArrayForCell(c.body_parts)).replace(/\n/g, '<br>')}</td>
+          <td style="${cellStyle}">${escapeHtml(c.status)}</td>
+          <td style="${cellStyle} font-weight: bold;">${escapeHtml(c.eams_case_number)}</td>
+          <td style="${cellStyle}">${escapeHtml(formatArrayForCell(c.events)).replace(/\n/g, '<br>')}</td>
           <td style="${cellStyle}">${formatRichParties(c)}</td>
           <td style="${cellStyle}">${escapeHtml(c.notes).replace(/\n/g, '<br>')}</td>
-          <td style="${cellStyle}">${escapeHtml(formatArrayForCell(c.events)).replace(/\n/g, '<br>')}</td>
         </tr>`;
     }).join('');
 
@@ -608,16 +613,14 @@ th { background-color: #f2f4f7; font-weight: bold; }
 <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; border: 1px solid #bfbfbf; width: 100%; font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.35;">
   <thead>
     <tr style="background-color: #f2f4f7; font-weight: bold;">
-      <th style="${thStyle}">EAMS Case Number</th>
-      <th style="${thStyle}">Board Location</th>
-      <th style="${thStyle}">Status</th>
-      <th style="${thStyle}">Injury Type</th>
-      <th style="${thStyle}">Injury Date</th>
-      <th style="${thStyle}">Employers</th>
-      <th style="${thStyle}">Body Parts</th>
-      <th style="${thStyle}">Parties</th>
-      <th style="${thStyle}">Notes</th>
-      <th style="${thStyle}">Events</th>
+      <th style="${thStyle}">DOI</th>
+      <th style="${thStyle}">TYPE</th>
+      <th style="${thStyle}">BODY PARTS</th>
+      <th style="${thStyle}">STATUS</th>
+      <th style="${thStyle}">EAMS #</th>
+      <th style="${thStyle}">EVENTS</th>
+      <th style="${thStyle}">PARTIES</th>
+      <th style="${thStyle}">NOTES</th>
     </tr>
   </thead>
   <tbody>
@@ -630,12 +633,11 @@ th { background-color: #f2f4f7; font-weight: bold; }
   }
 
   /**
-   * Generates Markdown Table with combined Parties column.
+   * Generates Markdown Table with updated column order.
    */
   function buildMarkdownTable(cases) {
     const headers = [
-      'EAMS Case Number', 'Board Location', 'Status', 'Injury Type', 'Injury Date',
-      'Employers', 'Body Parts', 'Parties', 'Notes', 'Events'
+      'DOI', 'TYPE', 'BODY PARTS', 'STATUS', 'EAMS #', 'EVENTS', 'PARTIES', 'NOTES'
     ];
 
     const escapeMdCell = (val) => {
@@ -648,16 +650,14 @@ th { background-color: #f2f4f7; font-weight: bold; }
 
     const dataRows = cases.map((c) => {
       const row = [
-        escapeMdCell(c.eams_case_number),
-        escapeMdCell(c.board_location),
-        escapeMdCell(c.status),
-        escapeMdCell(c.injury_type),
         escapeMdCell(c.injury_date),
-        escapeMdCell(c.employers),
+        escapeMdCell(c.injury_type),
         escapeMdCell(c.body_parts),
+        escapeMdCell(c.status),
+        escapeMdCell(c.eams_case_number),
+        escapeMdCell(c.events),
         escapeMdCell(c.parties),
-        escapeMdCell(c.notes),
-        escapeMdCell(c.events)
+        escapeMdCell(c.notes)
       ];
       return `| ${row.join(' | ')} |`;
     });
@@ -679,26 +679,27 @@ th { background-color: #f2f4f7; font-weight: bold; }
 
     cases.forEach((c, idx) => {
       lines.push(`## Case ${idx + 1}: ${c.eams_case_number}`);
-      lines.push(`- **Board Location:** ${c.board_location}`);
-      lines.push(`- **Status:** ${c.status}`);
-      lines.push(`- **Injury Type:** ${c.injury_type}`);
-      lines.push(`- **Injury Date:** ${c.injury_date}`);
+      lines.push(`- **DOI:** ${c.injury_date}`);
+      lines.push(`- **TYPE:** ${c.injury_type}`);
 
-      lines.push('- **Employers:**');
-      if (c.employers.length > 0) {
-        c.employers.forEach((emp) => lines.push(`  - ${emp}`));
-      } else {
-        lines.push('  - n/a');
-      }
-
-      lines.push('- **Body Parts:**');
+      lines.push('- **BODY PARTS:**');
       if (c.body_parts.length > 0) {
         c.body_parts.forEach((bp) => lines.push(`  - ${bp}`));
       } else {
         lines.push('  - n/a');
       }
 
-      lines.push('- **Parties:**');
+      lines.push(`- **STATUS:** ${c.status}`);
+      lines.push(`- **EAMS #:** ${c.eams_case_number}`);
+
+      lines.push('- **EVENTS:**');
+      if (c.events.length > 0) {
+        c.events.forEach((ev) => lines.push(`  - ${ev}`));
+      } else {
+        lines.push('  - (no events listed)');
+      }
+
+      lines.push('- **PARTIES:**');
       if (c.parties && c.parties !== 'n/a') {
         c.parties.split('\n').forEach((pLine) => {
           if (pLine.trim()) {
@@ -709,20 +710,13 @@ th { background-color: #f2f4f7; font-weight: bold; }
         lines.push('  - n/a');
       }
 
-      lines.push('- **Notes:**');
+      lines.push('- **NOTES:**');
       if (c.notes && c.notes !== '(none)') {
         c.notes.split('\n').forEach((noteLine) => {
           lines.push(`  ${noteLine}`);
         });
       } else {
         lines.push('  - (none)');
-      }
-
-      lines.push('- **Events:**');
-      if (c.events.length > 0) {
-        c.events.forEach((ev) => lines.push(`  - ${ev}`));
-      } else {
-        lines.push('  - (no events listed)');
       }
 
       lines.push('\n---\n');
@@ -736,8 +730,7 @@ th { background-color: #f2f4f7; font-weight: bold; }
    */
   function buildCsv(cases) {
     const headers = [
-      'eams_case_number', 'board_location', 'status', 'injury_type', 'injury_date',
-      'employers', 'body_parts', 'parties', 'notes', 'events'
+      'DOI', 'TYPE', 'BODY PARTS', 'STATUS', 'EAMS #', 'EVENTS', 'PARTIES', 'NOTES'
     ];
 
     const escapeCsv = (val) => {
@@ -751,16 +744,14 @@ th { background-color: #f2f4f7; font-weight: bold; }
     const headerLine = headers.join(',');
     const rows = cases.map((c) => {
       return [
-        escapeCsv(c.eams_case_number),
-        escapeCsv(c.board_location),
-        escapeCsv(c.status),
-        escapeCsv(c.injury_type),
         escapeCsv(c.injury_date),
-        escapeCsv(c.employers),
+        escapeCsv(c.injury_type),
         escapeCsv(c.body_parts),
+        escapeCsv(c.status),
+        escapeCsv(c.eams_case_number),
+        escapeCsv(c.events),
         escapeCsv(c.parties),
-        escapeCsv(c.notes),
-        escapeCsv(c.events)
+        escapeCsv(c.notes)
       ].join(',');
     });
 
