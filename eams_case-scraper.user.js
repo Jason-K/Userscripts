@@ -1,13 +1,10 @@
 // ==UserScript==
 // @name         EAMS Case Scraper
 // @namespace    https://github.com/Jason-K
-// @version      1.0
+// @version      1.1
 // @author       Jason K.
-// @description  Scrapes case details, parties, body parts, events, and status from EAMS General Case Information searches with rich text, markdown, and CSV exports.
-// @match        https://eams.dwc.ca.gov/WebEnhancement/CaseFinder*
-// @match        https://eams.dwc.ca.gov/WebEnhancement/InjuredWorkerFinder*
-// @match        https://eams.dwc.ca.gov/WebEnhancement/CaseDetailFinder*
-// @match        https://eams.dwc.ca.gov/WebEnhancement/CaseEventFinder*
+// @description  Autofills requester gate and scrapes case details, parties, body parts, events, and status from EAMS General Case Information searches with rich text, markdown, and CSV exports.
+// @match        https://eams.dwc.ca.gov/WebEnhancement/*
 // @grant        GM_setClipboard
 // @run-at       document-idle
 // @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/eams_case-scraper.user.js
@@ -21,6 +18,13 @@
   const TOOLBAR_ID = 'eams-scraper-toolbar';
   const TOAST_ID = 'eams-scraper-toast';
 
+  const REQUESTER_CONFIG = {
+    firstName: 'Jason',
+    lastName: 'Knox',
+    email: 'jknox@boxerlaw.com',
+    reasonCode: 'CASESEARCH' // CASE INFORMATION SEARCH
+  };
+
   const PRESERVED_ACRONYMS = new Set([
     'CA', 'NY', 'TX', 'FL', 'NV', 'AZ', 'WA', 'OR', 'IL', 'OH', 'PA',
     'ADJ', 'CT', 'DEU', 'DOR', 'TPA', 'PO', 'USA', 'LLC', 'INC', 'CORP',
@@ -30,6 +34,53 @@
   const LOWER_WORDS = new Set([
     'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'in', 'nor', 'of', 'on', 'or', 'so', 'the', 'to', 'up', 'yet', 'with'
   ]);
+
+  // --- Automatic Requester Gate Autofill & Submit ---
+
+  function handleRequesterGate() {
+    const form = document.getElementById('requestor');
+    if (!form) return false;
+
+    const fnamInput = document.getElementById('fnam');
+    const lnameInput = document.getElementById('lname');
+    const emInput = document.getElementById('em');
+    const reasonSelect = document.getElementById('reasonForReq');
+    const submitBtn = document.getElementById('submitForm');
+
+    if (fnamInput && lnameInput && emInput && reasonSelect && submitBtn) {
+      // Avoid re-submitting if form already has matching values
+      if (
+        fnamInput.value === REQUESTER_CONFIG.firstName &&
+        lnameInput.value === REQUESTER_CONFIG.lastName &&
+        emInput.value === REQUESTER_CONFIG.email &&
+        reasonSelect.value === REQUESTER_CONFIG.reasonCode
+      ) {
+        return false;
+      }
+
+      fnamInput.value = REQUESTER_CONFIG.firstName;
+      fnamInput.dispatchEvent(new Event('input', { bubbles: true }));
+      fnamInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+      lnameInput.value = REQUESTER_CONFIG.lastName;
+      lnameInput.dispatchEvent(new Event('input', { bubbles: true }));
+      lnameInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+      emInput.value = REQUESTER_CONFIG.email;
+      emInput.dispatchEvent(new Event('input', { bubbles: true }));
+      emInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+      reasonSelect.value = REQUESTER_CONFIG.reasonCode;
+      reasonSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+      // Give enterprise reCAPTCHA 400ms to ready before dispatching submit
+      setTimeout(() => {
+        submitBtn.click();
+      }, 400);
+      return true;
+    }
+    return false;
+  }
 
   // --- String & Data Normalization Helpers ---
 
@@ -133,55 +184,25 @@
   }
 
   /**
-   * Normalizes an address string for deduplication by removing punctuation and
-   * street/suite suffix tokens.
+   * Combines all non-lien claimant parties into a formatted multiline string
+   * with uppercase category headers and bulleted party names.
    */
-  function simplifyAddress(addr) {
-    if (!addr) return '';
-    return addr
-      .toUpperCase()
-      .replace(/[,.#]/g, ' ')
-      .replace(/\b(STREET|ST|AVENUE|AVE|PLACE|PL|SUITE|STE|FLOOR|FLR|UNIT|APT|DRIVE|DR|BOULEVARD|BLVD|ROAD|RD|HIGHWAY|HWY|WAY|LANE|LN|NORTH|N|SOUTH|S|EAST|E|WEST|W)\b/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
+  function buildPartiesText(partiesObj) {
+    const sections = [
+      { title: 'EMPLOYERS', list: partiesObj.employers },
+      { title: 'INSURERS', list: partiesObj.insurers },
+      { title: 'CLAIMS ADMINISTRATORS', list: partiesObj.tpas },
+      { title: 'ATTORNEYS', list: partiesObj.attorneys }
+    ];
 
-  /**
-   * Reconciles parties sharing identical names and matching/simplified addresses.
-   */
-  function reconcileParties(partyList) {
-    if (!partyList || partyList.length === 0) return [];
-    const groups = new Map();
-
-    for (const p of partyList) {
-      const rawName = p.name ? p.name.trim() : '';
-      const rawAddr = p.address ? p.address.trim() : '';
-      if (!rawName) continue;
-      const key = rawName.toUpperCase() + '|||' + simplifyAddress(rawAddr);
-
-      if (!groups.has(key)) {
-        groups.set(key, { name: rawName, addresses: [] });
+    const blocks = [];
+    for (const s of sections) {
+      if (s.list && s.list.length > 0) {
+        const items = s.list.map((name) => `- ${name}`).join('\n');
+        blocks.push(`${s.title}\n${items}`);
       }
-      groups.get(key).addresses.push(rawAddr);
     }
-
-    const reconciled = [];
-    for (const [, grp] of groups) {
-      const counts = {};
-      let bestAddr = '';
-      let maxCount = -1;
-      for (const a of grp.addresses) {
-        counts[a] = (counts[a] || 0) + 1;
-        if (counts[a] > maxCount || (counts[a] === maxCount && a.length > bestAddr.length)) {
-          maxCount = counts[a];
-          bestAddr = a;
-        }
-      }
-      const titleName = toTitleCase(grp.name);
-      const titleAddr = bestAddr ? toTitleCase(bestAddr) : '';
-      reconciled.push(titleAddr ? `${titleName} (${titleAddr})` : titleName);
-    }
-    return reconciled;
+    return blocks.length > 0 ? blocks.join('\n\n') : 'n/a';
   }
 
   /**
@@ -290,7 +311,7 @@
         currentCase = {
           eams_case_number: caseNum,
           board_location: boardLocation,
-          subpage1_employers: employerSub1 ? [employerSub1] : [],
+          subpage1_employers: employerSub1 ? [toTitleCase(employerSub1)] : [],
           raw_injury_date: rawInjuryDate,
           detail_url: detailUrl
         };
@@ -299,7 +320,7 @@
         // Subsequent employer row belonging to previous case
         const extraEmp = tds[2].innerText.trim();
         if (extraEmp) {
-          currentCase.subpage1_employers.push(extraEmp);
+          currentCase.subpage1_employers.push(toTitleCase(extraEmp));
         }
       }
     }
@@ -320,11 +341,11 @@
       const caseNotes = [...dateNotes];
 
       const bodyParts = [];
-      const partyEmployerRaw = [];
-      const partyInsurerRaw = [];
-      const partyTpaRaw = [];
-      const partyAttorneyRaw = [];
-      const lienClaimants = [];
+      const employerNames = new Set(c.subpage1_employers);
+      const insurerNames = new Set();
+      const tpaNames = new Set();
+      const attorneyNames = new Set();
+      const lienClaimantNames = new Set();
       let eventsUrl = '';
 
       if (c.detail_url) {
@@ -351,7 +372,7 @@
           }
         }
 
-        // Parse Participants
+        // Parse Participants (names only, no addresses)
         const tables = Array.from(detailDoc.querySelectorAll('table.resultTable'));
         for (const tbl of tables) {
           const headers = Array.from(tbl.querySelectorAll('th')).map((th) => th.innerText.trim().toUpperCase());
@@ -359,22 +380,23 @@
             const rows = Array.from(tbl.querySelectorAll('tr')).slice(1);
             for (const r of rows) {
               const cells = Array.from(r.querySelectorAll('td'));
-              if (cells.length < 3) continue;
-              const pName = cells[0].innerText.trim();
+              if (cells.length < 2) continue;
+              const rawName = cells[0].innerText.trim();
               const pRole = cells[1].innerText.trim().toUpperCase();
-              const pAddr = cells[2].innerText.trim();
-              if (!pName) continue;
+              if (!rawName) continue;
+
+              const titleName = toTitleCase(rawName);
 
               if (pRole.includes('EMPLOYER')) {
-                partyEmployerRaw.push({ name: pName, address: pAddr });
+                employerNames.add(titleName);
               } else if (pRole.includes('CLAIMS ADMINISTRATOR') || pRole.includes('TPA')) {
-                partyTpaRaw.push({ name: pName, address: pAddr });
+                tpaNames.add(titleName);
               } else if (pRole.includes('LAW FIRM') || pRole.includes('ATTORNEY')) {
-                partyAttorneyRaw.push({ name: pName, address: pAddr });
+                attorneyNames.add(titleName);
               } else if (pRole.includes('INSUR')) {
-                partyInsurerRaw.push({ name: pName, address: pAddr });
+                insurerNames.add(titleName);
               } else if (pRole.includes('LIEN CLAIMANT')) {
-                lienClaimants.push(toTitleCase(pName));
+                lienClaimantNames.add(titleName);
               }
             }
           }
@@ -387,38 +409,17 @@
         }
       }
 
-      // Reconcile party groups
-      const partyEmployerList = reconcileParties(partyEmployerRaw);
-      const partyInsurerList = reconcileParties(partyInsurerRaw);
-      const partyTpaList = reconcileParties(partyTpaRaw);
-      const partyAttorneyList = reconcileParties(partyAttorneyRaw);
+      const partiesObj = {
+        employers: Array.from(employerNames),
+        insurers: Array.from(insurerNames),
+        tpas: Array.from(tpaNames),
+        attorneys: Array.from(attorneyNames)
+      };
 
-      if (lienClaimants.length > 0) {
-        caseNotes.push(`- Lien Claimants: ${lienClaimants.join(', ')}`);
-      }
+      const partiesFormatted = buildPartiesText(partiesObj);
 
-      // Build `employers` list (Subpage 1 employers + matching Subpage 2 addresses)
-      const employersList = [];
-      const seenEmp = new Set();
-      for (const empName of c.subpage1_employers) {
-        const normEmp = empName.toUpperCase().trim();
-        const matchedParty = partyEmployerRaw.find((p) =>
-          p.name.toUpperCase().trim().includes(normEmp) || normEmp.includes(p.name.toUpperCase().trim())
-        );
-        const addr = matchedParty ? matchedParty.address : '';
-        const titleEmp = toTitleCase(empName);
-        const titleAddr = addr ? toTitleCase(addr) : '';
-        const fullStr = titleAddr ? `${titleEmp} (${titleAddr})` : titleEmp;
-        if (!seenEmp.has(fullStr)) {
-          seenEmp.add(fullStr);
-          employersList.push(fullStr);
-        }
-      }
-      for (const pe of partyEmployerList) {
-        if (!seenEmp.has(pe)) {
-          seenEmp.add(pe);
-          employersList.push(pe);
-        }
+      if (lienClaimantNames.size > 0) {
+        caseNotes.push(`- Lien Claimants: ${Array.from(lienClaimantNames).join(', ')}`);
       }
 
       // Fetch Subpage 3 (Events)
@@ -450,7 +451,6 @@
             const titleGen = toTitleCase(rawGen);
             const titleSpec = toTitleCase(rawSpec);
 
-            // Format: "event_date - event_type - event_description_general - event_description_specific"
             let entry = `${isoDate} - ${titleGen}`;
             if (titleType && titleSpec) {
               entry = `${isoDate} - ${titleType} - ${titleGen} - ${titleSpec}`;
@@ -469,7 +469,6 @@
         }
       }
 
-      // Sort events chronologically (oldest to most recent)
       parsedEvents.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
 
       const status = determineStatus(parsedEvents);
@@ -478,14 +477,12 @@
       results.push({
         eams_case_number: c.eams_case_number,
         board_location: c.board_location,
-        employers: employersList,
+        employers: partiesObj.employers,
         injury_type: injuryType,
         injury_date: injuryDate,
         body_parts: bodyParts,
-        party_employer: partyEmployerList.length > 0 ? partyEmployerList : ['n/a'],
-        party_insurer: partyInsurerList.length > 0 ? partyInsurerList : ['n/a'],
-        party_tpa: partyTpaList.length > 0 ? partyTpaList : ['n/a'],
-        party_attorney: partyAttorneyList.length > 0 ? partyAttorneyList : ['n/a'],
+        parties_data: partiesObj,
+        parties: partiesFormatted,
         notes: caseNotes.length > 0 ? caseNotes.join('\n') : '(none)',
         status: status,
         events: parsedEvents.map((e) => e.entry)
@@ -516,10 +513,32 @@
   }
 
   /**
-   * Generates Rich Text HTML table.
+   * Generates Rich Text HTML table with Parties column.
    */
   function buildRichHtmlTable(cases, workerLastName, workerFirstName) {
     const title = `EAMS Cases: ${workerLastName ? workerLastName + ', ' : ''}${workerFirstName || ''}`.trim();
+
+    function formatRichParties(c) {
+      const p = c.parties_data;
+      if (!p) return escapeHtml(c.parties).replace(/\n/g, '<br>');
+
+      const sections = [
+        { title: 'EMPLOYERS', list: p.employers },
+        { title: 'INSURERS', list: p.insurers },
+        { title: 'CLAIMS ADMINISTRATORS', list: p.tpas },
+        { title: 'ATTORNEYS', list: p.attorneys }
+      ];
+
+      const blocks = [];
+      for (const s of sections) {
+        if (s.list && s.list.length > 0) {
+          const items = s.list.map((n) => `&bull; ${escapeHtml(n)}`).join('<br>');
+          blocks.push(`<strong>${escapeHtml(s.title)}</strong><br>${items}`);
+        }
+      }
+      return blocks.length > 0 ? blocks.join('<br><br>') : 'n/a';
+    }
+
     const rowsHtml = cases.map((c) => {
       return `
         <tr>
@@ -530,10 +549,7 @@
           <td>${escapeHtml(c.injury_date)}</td>
           <td>${escapeHtml(formatArrayForCell(c.employers)).replace(/\n/g, '<br>')}</td>
           <td>${escapeHtml(formatArrayForCell(c.body_parts)).replace(/\n/g, '<br>')}</td>
-          <td>${escapeHtml(formatArrayForCell(c.party_employer)).replace(/\n/g, '<br>')}</td>
-          <td>${escapeHtml(formatArrayForCell(c.party_insurer)).replace(/\n/g, '<br>')}</td>
-          <td>${escapeHtml(formatArrayForCell(c.party_tpa)).replace(/\n/g, '<br>')}</td>
-          <td>${escapeHtml(formatArrayForCell(c.party_attorney)).replace(/\n/g, '<br>')}</td>
+          <td>${formatRichParties(c)}</td>
           <td>${escapeHtml(c.notes).replace(/\n/g, '<br>')}</td>
           <td>${escapeHtml(formatArrayForCell(c.events)).replace(/\n/g, '<br>')}</td>
         </tr>`;
@@ -552,10 +568,7 @@
               <th>Injury Date</th>
               <th>Employers</th>
               <th>Body Parts</th>
-              <th>Party Employer</th>
-              <th>Party Insurer</th>
-              <th>Party TPA</th>
-              <th>Party Attorney</th>
+              <th>Parties</th>
               <th>Notes</th>
               <th>Events</th>
             </tr>
@@ -568,13 +581,12 @@
   }
 
   /**
-   * Generates Markdown Table.
+   * Generates Markdown Table with combined Parties column.
    */
   function buildMarkdownTable(cases) {
     const headers = [
       'EAMS Case Number', 'Board Location', 'Status', 'Injury Type', 'Injury Date',
-      'Employers', 'Body Parts', 'Party Employer', 'Party Insurer', 'Party TPA',
-      'Party Attorney', 'Notes', 'Events'
+      'Employers', 'Body Parts', 'Parties', 'Notes', 'Events'
     ];
 
     const escapeMdCell = (val) => {
@@ -594,10 +606,7 @@
         escapeMdCell(c.injury_date),
         escapeMdCell(c.employers),
         escapeMdCell(c.body_parts),
-        escapeMdCell(c.party_employer),
-        escapeMdCell(c.party_insurer),
-        escapeMdCell(c.party_tpa),
-        escapeMdCell(c.party_attorney),
+        escapeMdCell(c.parties),
         escapeMdCell(c.notes),
         escapeMdCell(c.events)
       ];
@@ -641,10 +650,15 @@
       }
 
       lines.push('- **Parties:**');
-      lines.push(`  - **Employer:** ${formatArrayForCell(c.party_employer).replace(/\n/g, '; ')}`);
-      lines.push(`  - **Insurer:** ${formatArrayForCell(c.party_insurer).replace(/\n/g, '; ')}`);
-      lines.push(`  - **TPA:** ${formatArrayForCell(c.party_tpa).replace(/\n/g, '; ')}`);
-      lines.push(`  - **Attorney:** ${formatArrayForCell(c.party_attorney).replace(/\n/g, '; ')}`);
+      if (c.parties && c.parties !== 'n/a') {
+        c.parties.split('\n').forEach((pLine) => {
+          if (pLine.trim()) {
+            lines.push(`  ${pLine}`);
+          }
+        });
+      } else {
+        lines.push('  - n/a');
+      }
 
       lines.push('- **Notes:**');
       if (c.notes && c.notes !== '(none)') {
@@ -674,8 +688,7 @@
   function buildCsv(cases) {
     const headers = [
       'eams_case_number', 'board_location', 'status', 'injury_type', 'injury_date',
-      'employers', 'body_parts', 'party_employer', 'party_insurer', 'party_tpa',
-      'party_attorney', 'notes', 'events'
+      'employers', 'body_parts', 'parties', 'notes', 'events'
     ];
 
     const escapeCsv = (val) => {
@@ -696,10 +709,7 @@
         escapeCsv(c.injury_date),
         escapeCsv(c.employers),
         escapeCsv(c.body_parts),
-        escapeCsv(c.party_employer),
-        escapeCsv(c.party_insurer),
-        escapeCsv(c.party_tpa),
-        escapeCsv(c.party_attorney),
+        escapeCsv(c.parties),
         escapeCsv(c.notes),
         escapeCsv(c.events)
       ].join(',');
@@ -1028,8 +1038,18 @@
     document.body.appendChild(toolbar);
   }
 
-  // Initialize toolbar on page load / DOM change
+  // --- Lifecycle Initialization ---
+
+  function init() {
+    // 1. Try gate autofill if on RequesterInformationCaptureScreen
+    handleRequesterGate();
+
+    // 2. Initialize toolbar if on General Case Information
+    createToolbar();
+  }
+
   const checkInterval = setInterval(() => {
+    handleRequesterGate();
     const pageTitle = document.querySelector('p.pageTitleLayout');
     if (pageTitle && /general case information/i.test(pageTitle.innerText)) {
       clearInterval(checkInterval);
@@ -1037,6 +1057,9 @@
     }
   }, 500);
 
-  // Fallback observer
-  window.addEventListener('load', createToolbar);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
