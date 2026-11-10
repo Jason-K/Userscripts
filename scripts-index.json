@@ -1,5 +1,6 @@
 [
     "consensus_copy-citations.user.js",
+    "eams_case-scraper.user.js",
     "merus_core.js",
     "merus_core-test.user.js",
     "merus_default-assignee.user.js",

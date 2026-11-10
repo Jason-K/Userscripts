@@ -1,0 +1,1042 @@
+// ==UserScript==
+// @name         EAMS Case Scraper
+// @namespace    https://github.com/Jason-K
+// @version      1.0
+// @author       Jason K.
+// @description  Scrapes case details, parties, body parts, events, and status from EAMS General Case Information searches with rich text, markdown, and CSV exports.
+// @match        https://eams.dwc.ca.gov/WebEnhancement/CaseFinder*
+// @match        https://eams.dwc.ca.gov/WebEnhancement/InjuredWorkerFinder*
+// @match        https://eams.dwc.ca.gov/WebEnhancement/CaseDetailFinder*
+// @match        https://eams.dwc.ca.gov/WebEnhancement/CaseEventFinder*
+// @grant        GM_setClipboard
+// @run-at       document-idle
+// @downloadURL  https://raw.githubusercontent.com/Jason-K/Userscripts/main/eams_case-scraper.user.js
+// @updateURL    https://raw.githubusercontent.com/Jason-K/Userscripts/main/eams_case-scraper.user.js
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  // --- Configuration & Constants ---
+  const TOOLBAR_ID = 'eams-scraper-toolbar';
+  const TOAST_ID = 'eams-scraper-toast';
+
+  const PRESERVED_ACRONYMS = new Set([
+    'CA', 'NY', 'TX', 'FL', 'NV', 'AZ', 'WA', 'OR', 'IL', 'OH', 'PA',
+    'ADJ', 'CT', 'DEU', 'DOR', 'TPA', 'PO', 'USA', 'LLC', 'INC', 'CORP',
+    'CO', 'LP', 'LLP', 'PC', 'AC'
+  ]);
+
+  const LOWER_WORDS = new Set([
+    'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'in', 'nor', 'of', 'on', 'or', 'so', 'the', 'to', 'up', 'yet', 'with'
+  ]);
+
+  // --- String & Data Normalization Helpers ---
+
+  /**
+   * Converts UPPERCASE text into Title Case while preserving acronyms, ADJ numbers,
+   * state abbreviations, and minor words.
+   */
+  function toTitleCase(str) {
+    if (!str) return '';
+    str = String(str).replace(/\s+/g, ' ').trim();
+
+    const tokens = str.split(/(\s+|[-/&#,.:()])/);
+    let result = '';
+    let wordIdx = 0;
+
+    for (const token of tokens) {
+      if (!token) continue;
+      if (/^\s+|[-/&#,.:()]$/.test(token)) {
+        result += token;
+        continue;
+      }
+      const upper = token.toUpperCase();
+      if (/^ADJ\d+$/i.test(upper)) {
+        result += upper;
+        wordIdx++;
+        continue;
+      }
+      if (PRESERVED_ACRONYMS.has(upper)) {
+        result += upper;
+        wordIdx++;
+        continue;
+      }
+      const lower = token.toLowerCase();
+      if (wordIdx > 0 && LOWER_WORDS.has(lower)) {
+        result += lower;
+      } else {
+        result += token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+      }
+      wordIdx++;
+    }
+    return result;
+  }
+
+  /**
+   * Converts MM/DD/YYYY to YYYY-MM-DD format.
+   */
+  function normalizeDate(dateStr) {
+    if (!dateStr) return '';
+    const match = String(dateStr).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!match) return dateStr.trim();
+    const [, m, d, y] = match;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  /**
+   * Parses Injury Date and determines injury_type ("specific" or "CT").
+   * Computes CT date_diff and notes when CT != 1 year.
+   */
+  function parseInjuryDate(rawDate) {
+    rawDate = String(rawDate || '').trim();
+    let injuryType = 'specific';
+    let injuryDate = '';
+    const notes = [];
+
+    if (rawDate.includes(' - ')) {
+      injuryType = 'CT';
+      const [startStr, endStr] = rawDate.split(' - ').map((s) => s.trim());
+      injuryDate = normalizeDate(endStr);
+
+      const matchStart = startStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      const matchEnd = endStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+
+      if (matchStart && matchEnd) {
+        const d1 = new Date(parseInt(matchStart[3], 10), parseInt(matchStart[1], 10) - 1, parseInt(matchStart[2], 10));
+        const d2 = new Date(parseInt(matchEnd[3], 10), parseInt(matchEnd[1], 10) - 1, parseInt(matchEnd[2], 10));
+
+        const isExact1Year = (
+          d2.getFullYear() === d1.getFullYear() + 1 &&
+          d2.getMonth() === d1.getMonth() &&
+          d2.getDate() === d1.getDate()
+        );
+        const diffDays = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+
+        if (!isExact1Year && Math.abs(diffDays - 365) > 1) {
+          if (diffDays > 365) {
+            const years = (diffDays / 365.25).toFixed(2);
+            notes.push(`- CT length: ${years} years, based on CT from ${startStr} to ${endStr}`);
+          } else {
+            const weeks = Math.floor(diffDays / 7);
+            const days = diffDays % 7;
+            notes.push(`- CT length: ${weeks} weeks and ${days} days, based on CT from ${startStr} to ${endStr}`);
+          }
+        }
+      }
+    } else {
+      injuryType = 'specific';
+      injuryDate = normalizeDate(rawDate);
+    }
+
+    return { injuryType, injuryDate, notes };
+  }
+
+  /**
+   * Normalizes an address string for deduplication by removing punctuation and
+   * street/suite suffix tokens.
+   */
+  function simplifyAddress(addr) {
+    if (!addr) return '';
+    return addr
+      .toUpperCase()
+      .replace(/[,.#]/g, ' ')
+      .replace(/\b(STREET|ST|AVENUE|AVE|PLACE|PL|SUITE|STE|FLOOR|FLR|UNIT|APT|DRIVE|DR|BOULEVARD|BLVD|ROAD|RD|HIGHWAY|HWY|WAY|LANE|LN|NORTH|N|SOUTH|S|EAST|E|WEST|W)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Reconciles parties sharing identical names and matching/simplified addresses.
+   */
+  function reconcileParties(partyList) {
+    if (!partyList || partyList.length === 0) return [];
+    const groups = new Map();
+
+    for (const p of partyList) {
+      const rawName = p.name ? p.name.trim() : '';
+      const rawAddr = p.address ? p.address.trim() : '';
+      if (!rawName) continue;
+      const key = rawName.toUpperCase() + '|||' + simplifyAddress(rawAddr);
+
+      if (!groups.has(key)) {
+        groups.set(key, { name: rawName, addresses: [] });
+      }
+      groups.get(key).addresses.push(rawAddr);
+    }
+
+    const reconciled = [];
+    for (const [, grp] of groups) {
+      const counts = {};
+      let bestAddr = '';
+      let maxCount = -1;
+      for (const a of grp.addresses) {
+        counts[a] = (counts[a] || 0) + 1;
+        if (counts[a] > maxCount || (counts[a] === maxCount && a.length > bestAddr.length)) {
+          maxCount = counts[a];
+          bestAddr = a;
+        }
+      }
+      const titleName = toTitleCase(grp.name);
+      const titleAddr = bestAddr ? toTitleCase(bestAddr) : '';
+      reconciled.push(titleAddr ? `${titleName} (${titleAddr})` : titleName);
+    }
+    return reconciled;
+  }
+
+  /**
+   * Determines case status from chronological events.
+   * Priority:
+   * - "reopened" if reopen event filed after award/C&R
+   * - "closed by award"
+   * - "closed by C&R"
+   * - "pending"
+   */
+  function determineStatus(events) {
+    let status = 'pending';
+    for (const ev of events) {
+      const gen = (ev.raw_general || '').toUpperCase();
+      const type = (ev.raw_type || '').toUpperCase();
+      const spec = (ev.raw_specific || '').toUpperCase();
+
+      const isAwardStips = gen.includes('AWARD - STIPULATIONS');
+      const isAwardTrial = (gen.includes('FINDING') && gen.includes('AWARD')) &&
+                           (type.includes('CLOSING ORDER') || spec.includes('FINDING') || spec.includes('AWARD'));
+      const isOtherAward = gen.includes('AWARD') && type.includes('CLOSING ORDER');
+
+      const isCR = gen.includes('ORDER APPROVING C & R') ||
+                   gen.includes('ORDER APPROVING C&R') ||
+                   gen.includes('COMPROMISE AND RELEASE') ||
+                   (type.includes('CLOSING ORDER') && (spec.includes('C & R') || spec.includes('C&R') || spec.includes('COMPROMISE')));
+
+      const isReopen = gen.includes('REOPEN') || spec.includes('REOPEN') || type.includes('REOPEN');
+
+      if (isAwardStips || isAwardTrial || isOtherAward) {
+        status = 'closed by award';
+      } else if (isCR) {
+        status = 'closed by C&R';
+      } else if (isReopen && (status === 'closed by award' || status === 'closed by C&R')) {
+        status = 'reopened';
+      }
+    }
+    return status;
+  }
+
+  /**
+   * Returns current timestamp formatted as "YYYY.MM.DD at HH.MM.SS".
+   */
+  function getTimestamp() {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())} at ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+  }
+
+  /**
+   * Builds default export filename:
+   * "YYYY.MM.DD at HH.MM.SS - EAMS cases for LASTNAME FIRSTNAME.EXTENSION"
+   */
+  function getExportFilename(workerLastName, workerFirstName, ext) {
+    const ts = getTimestamp();
+    const last = (workerLastName || 'UNKNOWN').trim().toUpperCase();
+    const first = (workerFirstName || '').trim().toUpperCase();
+    const namePart = first ? `${last} ${first}` : last;
+    return `${ts} - EAMS cases for ${namePart}.${ext}`;
+  }
+
+  // --- Scraping Engine ---
+
+  async function scrapeCaseData(progressCb) {
+    // 1. Worker Name from Subpage 1
+    const workerTable = document.querySelectorAll('table.resultTable')[0];
+    let workerFirstName = '';
+    let workerLastName = '';
+    if (workerTable) {
+      const rows = workerTable.querySelectorAll('tr');
+      if (rows.length >= 2) {
+        const cells = rows[1].querySelectorAll('td');
+        if (cells.length >= 2) {
+          workerFirstName = cells[0].innerText.trim();
+          workerLastName = cells[1].innerText.trim();
+        }
+      }
+    }
+
+    // 2. Case List from Subpage 1
+    const caseTable = document.querySelectorAll('table.resultTable')[1];
+    if (!caseTable) {
+      throw new Error('No case table found on this screen. Make sure you are on General Case Information.');
+    }
+
+    const caseRows = Array.from(caseTable.querySelectorAll('tr')).slice(1);
+    const parsedCases = [];
+    let currentCase = null;
+
+    for (const tr of caseRows) {
+      const tds = Array.from(tr.querySelectorAll('td'));
+      if (tds.length === 0) continue;
+
+      const caseNumText = tds[0] ? tds[0].innerText.trim() : '';
+      const matchCase = caseNumText.match(/ADJ\d+/);
+
+      if (matchCase) {
+        const caseNum = matchCase[0];
+        const rawLoc = tds[1] ? tds[1].innerText.trim() : '';
+        const boardLocation = toTitleCase(rawLoc.replace(/-ADJ$/i, '').trim());
+        const employerSub1 = tds[2] ? tds[2].innerText.trim() : '';
+        const rawInjuryDate = tds[3] ? tds[3].innerText.trim() : '';
+        const linkA = tr.querySelector('a');
+        const detailUrl = linkA ? linkA.href : '';
+
+        currentCase = {
+          eams_case_number: caseNum,
+          board_location: boardLocation,
+          subpage1_employers: employerSub1 ? [employerSub1] : [],
+          raw_injury_date: rawInjuryDate,
+          detail_url: detailUrl
+        };
+        parsedCases.push(currentCase);
+      } else if (currentCase && tds.length >= 3) {
+        // Subsequent employer row belonging to previous case
+        const extraEmp = tds[2].innerText.trim();
+        if (extraEmp) {
+          currentCase.subpage1_employers.push(extraEmp);
+        }
+      }
+    }
+
+    if (parsedCases.length === 0) {
+      throw new Error('No cases found in the General Case Information table.');
+    }
+
+    // 3. Fetch Subpage 2 (Case Detail) and Subpage 3 (Events) for each case
+    const results = [];
+    for (let i = 0; i < parsedCases.length; i++) {
+      const c = parsedCases[i];
+      if (progressCb) {
+        progressCb(`Scraping case ${i + 1} of ${parsedCases.length} (${c.eams_case_number})...`);
+      }
+
+      const { injuryType, injuryDate, notes: dateNotes } = parseInjuryDate(c.raw_injury_date);
+      const caseNotes = [...dateNotes];
+
+      const bodyParts = [];
+      const partyEmployerRaw = [];
+      const partyInsurerRaw = [];
+      const partyTpaRaw = [];
+      const partyAttorneyRaw = [];
+      const lienClaimants = [];
+      let eventsUrl = '';
+
+      if (c.detail_url) {
+        const detailResp = await fetch(c.detail_url);
+        const detailHtml = await detailResp.text();
+        const detailDoc = new DOMParser().parseFromString(detailHtml, 'text/html');
+
+        const allRows = Array.from(detailDoc.querySelectorAll('tr'));
+
+        // Parse Body Parts (rows where cell 0 contains "Body Part")
+        for (const r of allRows) {
+          const cells = Array.from(r.querySelectorAll('td'));
+          if (cells.length >= 2 && /body\s*part/i.test(cells[0].innerText)) {
+            const rawVal = cells[1].innerText.trim();
+            const matchBp = rawVal.match(/^(\d{3})\s*[-]?\s*(.*)$/);
+            if (matchBp) {
+              const code = matchBp[1];
+              let desc = matchBp[2].replace(/^[-–—]\s*/, '').trim();
+              const formattedBp = `${code} - ${toTitleCase(desc)}`;
+              if (!bodyParts.includes(formattedBp)) {
+                bodyParts.push(formattedBp);
+              }
+            }
+          }
+        }
+
+        // Parse Participants
+        const tables = Array.from(detailDoc.querySelectorAll('table.resultTable'));
+        for (const tbl of tables) {
+          const headers = Array.from(tbl.querySelectorAll('th')).map((th) => th.innerText.trim().toUpperCase());
+          if (headers.includes('PARTICIPANT NAME') && headers.includes('ROLE')) {
+            const rows = Array.from(tbl.querySelectorAll('tr')).slice(1);
+            for (const r of rows) {
+              const cells = Array.from(r.querySelectorAll('td'));
+              if (cells.length < 3) continue;
+              const pName = cells[0].innerText.trim();
+              const pRole = cells[1].innerText.trim().toUpperCase();
+              const pAddr = cells[2].innerText.trim();
+              if (!pName) continue;
+
+              if (pRole.includes('EMPLOYER')) {
+                partyEmployerRaw.push({ name: pName, address: pAddr });
+              } else if (pRole.includes('CLAIMS ADMINISTRATOR') || pRole.includes('TPA')) {
+                partyTpaRaw.push({ name: pName, address: pAddr });
+              } else if (pRole.includes('LAW FIRM') || pRole.includes('ATTORNEY')) {
+                partyAttorneyRaw.push({ name: pName, address: pAddr });
+              } else if (pRole.includes('INSUR')) {
+                partyInsurerRaw.push({ name: pName, address: pAddr });
+              } else if (pRole.includes('LIEN CLAIMANT')) {
+                lienClaimants.push(toTitleCase(pName));
+              }
+            }
+          }
+        }
+
+        // Events Link
+        const eventLink = detailDoc.querySelector('a[href*="CaseEventFinder"]');
+        if (eventLink) {
+          eventsUrl = eventLink.href;
+        }
+      }
+
+      // Reconcile party groups
+      const partyEmployerList = reconcileParties(partyEmployerRaw);
+      const partyInsurerList = reconcileParties(partyInsurerRaw);
+      const partyTpaList = reconcileParties(partyTpaRaw);
+      const partyAttorneyList = reconcileParties(partyAttorneyRaw);
+
+      if (lienClaimants.length > 0) {
+        caseNotes.push(`- Lien Claimants: ${lienClaimants.join(', ')}`);
+      }
+
+      // Build `employers` list (Subpage 1 employers + matching Subpage 2 addresses)
+      const employersList = [];
+      const seenEmp = new Set();
+      for (const empName of c.subpage1_employers) {
+        const normEmp = empName.toUpperCase().trim();
+        const matchedParty = partyEmployerRaw.find((p) =>
+          p.name.toUpperCase().trim().includes(normEmp) || normEmp.includes(p.name.toUpperCase().trim())
+        );
+        const addr = matchedParty ? matchedParty.address : '';
+        const titleEmp = toTitleCase(empName);
+        const titleAddr = addr ? toTitleCase(addr) : '';
+        const fullStr = titleAddr ? `${titleEmp} (${titleAddr})` : titleEmp;
+        if (!seenEmp.has(fullStr)) {
+          seenEmp.add(fullStr);
+          employersList.push(fullStr);
+        }
+      }
+      for (const pe of partyEmployerList) {
+        if (!seenEmp.has(pe)) {
+          seenEmp.add(pe);
+          employersList.push(pe);
+        }
+      }
+
+      // Fetch Subpage 3 (Events)
+      const parsedEvents = [];
+      if (eventsUrl) {
+        const eventResp = await fetch(eventsUrl);
+        const eventHtml = await eventResp.text();
+        const eventDoc = new DOMParser().parseFromString(eventHtml, 'text/html');
+        const eventTable = eventDoc.querySelectorAll('table.resultTable')[1];
+        if (eventTable) {
+          const rows = Array.from(eventTable.querySelectorAll('tr')).slice(1);
+          for (const r of rows) {
+            const tds = Array.from(r.querySelectorAll('td'));
+            if (tds.length < 3) continue;
+            const rawGen = tds[0].innerText.trim();
+            const rawDetail = tds[1].innerText.trim();
+            const rawDate = tds[2].innerText.trim();
+
+            let rawType = '';
+            let rawSpec = rawDetail;
+            if (rawDetail.includes(':')) {
+              const colonIdx = rawDetail.indexOf(':');
+              rawType = rawDetail.substring(0, colonIdx).trim();
+              rawSpec = rawDetail.substring(colonIdx + 1).trim();
+            }
+
+            const isoDate = normalizeDate(rawDate);
+            const titleType = toTitleCase(rawType);
+            const titleGen = toTitleCase(rawGen);
+            const titleSpec = toTitleCase(rawSpec);
+
+            // Format: "event_date - event_type - event_description_general - event_description_specific"
+            let entry = `${isoDate} - ${titleGen}`;
+            if (titleType && titleSpec) {
+              entry = `${isoDate} - ${titleType} - ${titleGen} - ${titleSpec}`;
+            } else if (titleSpec) {
+              entry = `${isoDate} - ${titleGen} - ${titleSpec}`;
+            }
+
+            parsedEvents.push({
+              entry,
+              isoDate,
+              raw_general: rawGen,
+              raw_type: rawType,
+              raw_specific: rawSpec
+            });
+          }
+        }
+      }
+
+      // Sort events chronologically (oldest to most recent)
+      parsedEvents.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+
+      const status = determineStatus(parsedEvents);
+      bodyParts.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+      results.push({
+        eams_case_number: c.eams_case_number,
+        board_location: c.board_location,
+        employers: employersList,
+        injury_type: injuryType,
+        injury_date: injuryDate,
+        body_parts: bodyParts,
+        party_employer: partyEmployerList.length > 0 ? partyEmployerList : ['n/a'],
+        party_insurer: partyInsurerList.length > 0 ? partyInsurerList : ['n/a'],
+        party_tpa: partyTpaList.length > 0 ? partyTpaList : ['n/a'],
+        party_attorney: partyAttorneyList.length > 0 ? partyAttorneyList : ['n/a'],
+        notes: caseNotes.length > 0 ? caseNotes.join('\n') : '(none)',
+        status: status,
+        events: parsedEvents.map((e) => e.entry)
+      });
+    }
+
+    return {
+      workerFirstName,
+      workerLastName,
+      cases: results
+    };
+  }
+
+  // --- Formatters & Export Generators ---
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function formatArrayForCell(arr) {
+    if (!arr || arr.length === 0) return 'n/a';
+    return Array.isArray(arr) ? arr.join('\n') : String(arr);
+  }
+
+  /**
+   * Generates Rich Text HTML table.
+   */
+  function buildRichHtmlTable(cases, workerLastName, workerFirstName) {
+    const title = `EAMS Cases: ${workerLastName ? workerLastName + ', ' : ''}${workerFirstName || ''}`.trim();
+    const rowsHtml = cases.map((c) => {
+      return `
+        <tr>
+          <td style="font-weight: 600;">${escapeHtml(c.eams_case_number)}</td>
+          <td>${escapeHtml(c.board_location)}</td>
+          <td><span style="font-weight: 500;">${escapeHtml(c.status)}</span></td>
+          <td>${escapeHtml(c.injury_type)}</td>
+          <td>${escapeHtml(c.injury_date)}</td>
+          <td>${escapeHtml(formatArrayForCell(c.employers)).replace(/\n/g, '<br>')}</td>
+          <td>${escapeHtml(formatArrayForCell(c.body_parts)).replace(/\n/g, '<br>')}</td>
+          <td>${escapeHtml(formatArrayForCell(c.party_employer)).replace(/\n/g, '<br>')}</td>
+          <td>${escapeHtml(formatArrayForCell(c.party_insurer)).replace(/\n/g, '<br>')}</td>
+          <td>${escapeHtml(formatArrayForCell(c.party_tpa)).replace(/\n/g, '<br>')}</td>
+          <td>${escapeHtml(formatArrayForCell(c.party_attorney)).replace(/\n/g, '<br>')}</td>
+          <td>${escapeHtml(c.notes).replace(/\n/g, '<br>')}</td>
+          <td>${escapeHtml(formatArrayForCell(c.events)).replace(/\n/g, '<br>')}</td>
+        </tr>`;
+    }).join('');
+
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.4;">
+        <h3 style="margin-bottom: 8px;">${escapeHtml(title)}</h3>
+        <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; border: 1px solid #ccc; width: 100%;">
+          <thead>
+            <tr style="background-color: #f2f4f7; text-align: left; font-weight: 600;">
+              <th>EAMS Case Number</th>
+              <th>Board Location</th>
+              <th>Status</th>
+              <th>Injury Type</th>
+              <th>Injury Date</th>
+              <th>Employers</th>
+              <th>Body Parts</th>
+              <th>Party Employer</th>
+              <th>Party Insurer</th>
+              <th>Party TPA</th>
+              <th>Party Attorney</th>
+              <th>Notes</th>
+              <th>Events</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  /**
+   * Generates Markdown Table.
+   */
+  function buildMarkdownTable(cases) {
+    const headers = [
+      'EAMS Case Number', 'Board Location', 'Status', 'Injury Type', 'Injury Date',
+      'Employers', 'Body Parts', 'Party Employer', 'Party Insurer', 'Party TPA',
+      'Party Attorney', 'Notes', 'Events'
+    ];
+
+    const escapeMdCell = (val) => {
+      const text = formatArrayForCell(val);
+      return text.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+    };
+
+    const headerRow = `| ${headers.join(' | ')} |`;
+    const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
+
+    const dataRows = cases.map((c) => {
+      const row = [
+        escapeMdCell(c.eams_case_number),
+        escapeMdCell(c.board_location),
+        escapeMdCell(c.status),
+        escapeMdCell(c.injury_type),
+        escapeMdCell(c.injury_date),
+        escapeMdCell(c.employers),
+        escapeMdCell(c.body_parts),
+        escapeMdCell(c.party_employer),
+        escapeMdCell(c.party_insurer),
+        escapeMdCell(c.party_tpa),
+        escapeMdCell(c.party_attorney),
+        escapeMdCell(c.notes),
+        escapeMdCell(c.events)
+      ];
+      return `| ${row.join(' | ')} |`;
+    });
+
+    return [headerRow, separatorRow, ...dataRows].join('\n');
+  }
+
+  /**
+   * Generates Markdown Report.
+   */
+  function buildMarkdownReport(cases, workerLastName, workerFirstName) {
+    const ts = getTimestamp();
+    const lines = [];
+
+    lines.push(`# EAMS Case Search Summary: ${workerLastName ? workerLastName + ', ' : ''}${workerFirstName || ''}`);
+    lines.push(`*Generated on ${ts}*\n`);
+    lines.push(`Total cases found: ${cases.length}\n`);
+    lines.push('---\n');
+
+    cases.forEach((c, idx) => {
+      lines.push(`## Case ${idx + 1}: ${c.eams_case_number}`);
+      lines.push(`- **Board Location:** ${c.board_location}`);
+      lines.push(`- **Status:** ${c.status}`);
+      lines.push(`- **Injury Type:** ${c.injury_type}`);
+      lines.push(`- **Injury Date:** ${c.injury_date}`);
+
+      lines.push('- **Employers:**');
+      if (c.employers.length > 0) {
+        c.employers.forEach((emp) => lines.push(`  - ${emp}`));
+      } else {
+        lines.push('  - n/a');
+      }
+
+      lines.push('- **Body Parts:**');
+      if (c.body_parts.length > 0) {
+        c.body_parts.forEach((bp) => lines.push(`  - ${bp}`));
+      } else {
+        lines.push('  - n/a');
+      }
+
+      lines.push('- **Parties:**');
+      lines.push(`  - **Employer:** ${formatArrayForCell(c.party_employer).replace(/\n/g, '; ')}`);
+      lines.push(`  - **Insurer:** ${formatArrayForCell(c.party_insurer).replace(/\n/g, '; ')}`);
+      lines.push(`  - **TPA:** ${formatArrayForCell(c.party_tpa).replace(/\n/g, '; ')}`);
+      lines.push(`  - **Attorney:** ${formatArrayForCell(c.party_attorney).replace(/\n/g, '; ')}`);
+
+      lines.push('- **Notes:**');
+      if (c.notes && c.notes !== '(none)') {
+        c.notes.split('\n').forEach((noteLine) => {
+          lines.push(`  ${noteLine}`);
+        });
+      } else {
+        lines.push('  - (none)');
+      }
+
+      lines.push('- **Events:**');
+      if (c.events.length > 0) {
+        c.events.forEach((ev) => lines.push(`  - ${ev}`));
+      } else {
+        lines.push('  - (no events listed)');
+      }
+
+      lines.push('\n---\n');
+    });
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generates CSV string.
+   */
+  function buildCsv(cases) {
+    const headers = [
+      'eams_case_number', 'board_location', 'status', 'injury_type', 'injury_date',
+      'employers', 'body_parts', 'party_employer', 'party_insurer', 'party_tpa',
+      'party_attorney', 'notes', 'events'
+    ];
+
+    const escapeCsv = (val) => {
+      const text = formatArrayForCell(val);
+      if (/[",\n\r]/.test(text)) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const headerLine = headers.join(',');
+    const rows = cases.map((c) => {
+      return [
+        escapeCsv(c.eams_case_number),
+        escapeCsv(c.board_location),
+        escapeCsv(c.status),
+        escapeCsv(c.injury_type),
+        escapeCsv(c.injury_date),
+        escapeCsv(c.employers),
+        escapeCsv(c.body_parts),
+        escapeCsv(c.party_employer),
+        escapeCsv(c.party_insurer),
+        escapeCsv(c.party_tpa),
+        escapeCsv(c.party_attorney),
+        escapeCsv(c.notes),
+        escapeCsv(c.events)
+      ].join(',');
+    });
+
+    return [headerLine, ...rows].join('\r\n');
+  }
+
+  // --- Clipboard & Download Triggers ---
+
+  async function copyToClipboard(richHtml, plainText) {
+    if (typeof GM_setClipboard === 'function') {
+      try {
+        GM_setClipboard(richHtml, { type: 'html', minType: 'text' });
+        return true;
+      } catch {
+        try {
+          GM_setClipboard(plainText, 'text');
+          return true;
+        } catch {}
+      }
+    }
+
+    if (navigator.clipboard && window.ClipboardItem) {
+      try {
+        const item = new ClipboardItem({
+          'text/html': new Blob([richHtml], { type: 'text/html' }),
+          'text/plain': new Blob([plainText], { type: 'text/plain' })
+        });
+        await navigator.clipboard.write([item]);
+        return true;
+      } catch (err) {
+        console.warn('ClipboardItem copy failed, using fallback listener', err);
+      }
+    }
+
+    const container = document.createElement('div');
+    container.contentEditable = 'true';
+    container.innerHTML = richHtml;
+    Object.assign(container.style, {
+      position: 'fixed',
+      left: '-9999px',
+      top: '-9999px',
+      opacity: '0'
+    });
+    document.body.appendChild(container);
+
+    const range = document.createRange();
+    range.selectNodeContents(container);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const listener = (e) => {
+      e.clipboardData.setData('text/plain', plainText);
+      e.clipboardData.setData('text/html', richHtml);
+      e.preventDefault();
+    };
+    document.addEventListener('copy', listener, { once: true });
+    const success = document.execCommand('copy');
+    sel.removeAllRanges();
+    document.body.removeChild(container);
+    return success;
+  }
+
+  async function copyPlainText(plainText) {
+    if (typeof GM_setClipboard === 'function') {
+      try {
+        GM_setClipboard(plainText, 'text');
+        return true;
+      } catch {}
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(plainText);
+        return true;
+      } catch (e) {
+        console.warn('clipboard.writeText failed, using fallback', e);
+      }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = plainText;
+    Object.assign(textarea.style, {
+      position: 'fixed',
+      left: '-9999px',
+      top: '-9999px',
+      opacity: '0'
+    });
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    const listener = (e) => {
+      e.clipboardData.setData('text/plain', plainText);
+      e.preventDefault();
+    };
+    document.addEventListener('copy', listener, { once: true });
+    const success = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return success;
+  }
+
+  function downloadFile(content, mimeType, filename) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }
+
+  function showToast(message, isError = false) {
+    let toast = document.getElementById(TOAST_ID);
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = TOAST_ID;
+      Object.assign(toast.style, {
+        position: 'fixed',
+        bottom: '80px',
+        right: '24px',
+        backgroundColor: isError ? '#d32f2f' : '#2e7d32',
+        color: '#ffffff',
+        padding: '12px 18px',
+        borderRadius: '8px',
+        fontSize: '13px',
+        fontWeight: '500',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+        zIndex: '10000',
+        transition: 'opacity 0.3s ease, transform 0.3s ease',
+        opacity: '0',
+        transform: 'translateY(10px)'
+      });
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.style.backgroundColor = isError ? '#d32f2f' : '#2e7d32';
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(10px)';
+    }, 3500);
+  }
+
+  // --- UI Toolbar Component ---
+
+  let cachedScrapeResult = null;
+  let isScraping = false;
+
+  async function ensureScraped(statusEl) {
+    if (cachedScrapeResult) return cachedScrapeResult;
+    if (isScraping) {
+      throw new Error('Scrape already in progress. Please wait.');
+    }
+    try {
+      isScraping = true;
+      if (statusEl) statusEl.textContent = 'Scraping cases...';
+      const res = await scrapeCaseData((msg) => {
+        if (statusEl) statusEl.textContent = msg;
+      });
+      cachedScrapeResult = res;
+      if (statusEl) {
+        statusEl.textContent = `✅ Ready (${res.cases.length} cases scraped)`;
+      }
+      return res;
+    } finally {
+      isScraping = false;
+    }
+  }
+
+  function createToolbar() {
+    if (document.getElementById(TOOLBAR_ID)) return;
+
+    // Verify we are on General Case Information screen
+    const pageTitle = document.querySelector('p.pageTitleLayout');
+    const isGeneralInfo = pageTitle && /general case information/i.test(pageTitle.innerText);
+    const hasResultTable = !!document.querySelector('table.resultTable');
+
+    if (!isGeneralInfo && !hasResultTable) return;
+
+    const toolbar = document.createElement('div');
+    toolbar.id = TOOLBAR_ID;
+    Object.assign(toolbar.style, {
+      position: 'fixed',
+      bottom: '12px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      backgroundColor: '#ffffff',
+      border: '1px solid #d0d7de',
+      borderRadius: '10px',
+      boxShadow: '0 6px 20px rgba(0,0,0,0.18)',
+      padding: '10px 16px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      zIndex: '9999',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      fontSize: '12px'
+    });
+
+    const titleEl = document.createElement('span');
+    titleEl.textContent = '⚖️ EAMS Scraper:';
+    titleEl.style.fontWeight = '700';
+    titleEl.style.color = '#333333';
+    titleEl.style.marginRight = '4px';
+
+    const statusEl = document.createElement('span');
+    statusEl.id = 'eams-scraper-status';
+    statusEl.textContent = 'Ready to scrape';
+    statusEl.style.color = '#666666';
+    statusEl.style.fontSize = '11px';
+    statusEl.style.marginRight = '8px';
+
+    function makeButton(text, bg, fg, clickHandler) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = text;
+      Object.assign(btn.style, {
+        padding: '6px 10px',
+        backgroundColor: bg,
+        color: fg,
+        border: '1px solid rgba(0,0,0,0.12)',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        fontSize: '12px',
+        fontWeight: '500',
+        transition: 'background-color 0.2s ease, transform 0.1s ease',
+        whiteSpace: 'nowrap'
+      });
+      btn.addEventListener('mouseenter', () => { btn.style.filter = 'brightness(0.95)'; });
+      btn.addEventListener('mouseleave', () => { btn.style.filter = 'none'; });
+      btn.addEventListener('mousedown', () => { btn.style.transform = 'scale(0.98)'; });
+      btn.addEventListener('mouseup', () => { btn.style.transform = 'scale(1)'; });
+      btn.addEventListener('click', async () => {
+        try {
+          btn.disabled = true;
+          await clickHandler();
+        } catch (err) {
+          console.error(err);
+          showToast(err.message || 'Operation failed', true);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      return btn;
+    }
+
+    // 1. Export to Clipboard (Rich Text)
+    const btnClipRich = makeButton('📋 Clipboard (Rich)', '#2563eb', '#ffffff', async () => {
+      const data = await ensureScraped(statusEl);
+      const richHtml = buildRichHtmlTable(data.cases, data.workerLastName, data.workerFirstName);
+      const plainText = buildMarkdownTable(data.cases);
+      await copyToClipboard(richHtml, plainText);
+      showToast('✅ Copied Rich Table to clipboard!');
+    });
+
+    // 2. Export to Clipboard (Markdown Table)
+    const btnClipMdTable = makeButton('📋 Clipboard (MD Table)', '#0284c7', '#ffffff', async () => {
+      const data = await ensureScraped(statusEl);
+      const mdTable = buildMarkdownTable(data.cases);
+      await copyPlainText(mdTable);
+      showToast('✅ Copied Markdown Table to clipboard!');
+    });
+
+    // 3. Export to Clipboard (Markdown Report)
+    const btnClipMdReport = makeButton('📋 Clipboard (MD Report)', '#0d9488', '#ffffff', async () => {
+      const data = await ensureScraped(statusEl);
+      const mdReport = buildMarkdownReport(data.cases, data.workerLastName, data.workerFirstName);
+      await copyPlainText(mdReport);
+      showToast('✅ Copied Markdown Report to clipboard!');
+    });
+
+    // 4. Export to File (CSV)
+    const btnFileCsv = makeButton('💾 File (CSV)', '#16a34a', '#ffffff', async () => {
+      const data = await ensureScraped(statusEl);
+      const csv = buildCsv(data.cases);
+      const filename = getExportFilename(data.workerLastName, data.workerFirstName, 'csv');
+      downloadFile(csv, 'text/csv;charset=utf-8;', filename);
+      showToast(`💾 Saved ${filename}`);
+    });
+
+    // 5. Export to File (MD Table)
+    const btnFileMdTable = makeButton('💾 File (MD Table)', '#475569', '#ffffff', async () => {
+      const data = await ensureScraped(statusEl);
+      const mdTable = buildMarkdownTable(data.cases);
+      const filename = getExportFilename(data.workerLastName, data.workerFirstName, 'table.md');
+      downloadFile(mdTable, 'text/markdown;charset=utf-8;', filename);
+      showToast(`💾 Saved ${filename}`);
+    });
+
+    // 6. Export to File (MD Report)
+    const btnFileMdReport = makeButton('💾 File (MD Report)', '#334155', '#ffffff', async () => {
+      const data = await ensureScraped(statusEl);
+      const mdReport = buildMarkdownReport(data.cases, data.workerLastName, data.workerFirstName);
+      const filename = getExportFilename(data.workerLastName, data.workerFirstName, 'report.md');
+      downloadFile(mdReport, 'text/markdown;charset=utf-8;', filename);
+      showToast(`💾 Saved ${filename}`);
+    });
+
+    // Refresh / Rescrape button
+    const btnRescrape = makeButton('🔄 Rescrape', '#f3f4f6', '#374151', async () => {
+      cachedScrapeResult = null;
+      await ensureScraped(statusEl);
+      showToast('✅ Rescraped case data!');
+    });
+
+    toolbar.appendChild(titleEl);
+    toolbar.appendChild(statusEl);
+    toolbar.appendChild(btnClipRich);
+    toolbar.appendChild(btnClipMdTable);
+    toolbar.appendChild(btnClipMdReport);
+    toolbar.appendChild(btnFileCsv);
+    toolbar.appendChild(btnFileMdTable);
+    toolbar.appendChild(btnFileMdReport);
+    toolbar.appendChild(btnRescrape);
+
+    document.body.appendChild(toolbar);
+  }
+
+  // Initialize toolbar on page load / DOM change
+  const checkInterval = setInterval(() => {
+    const pageTitle = document.querySelector('p.pageTitleLayout');
+    if (pageTitle && /general case information/i.test(pageTitle.innerText)) {
+      clearInterval(checkInterval);
+      createToolbar();
+    }
+  }, 500);
+
+  // Fallback observer
+  window.addEventListener('load', createToolbar);
+})();
